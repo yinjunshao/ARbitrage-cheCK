@@ -1,0 +1,14 @@
+{
+  "id": "12345",
+  "question": "Will it rain in London tomorrow?",
+  "conditionId": "0xabc123",
+  "slug": "will-it-rain-in-london-tomorrow",
+  "endDate": "2026-12-31T12:00:00Z",
+  "outcomes": "[\"Yes\", \"No\"]",
+  "outcomePrices": "[\"1\", \"0\"]",
+  "clobTokenIds": "[\"111\", \"222\"]",
+  "active": true,
+  "closed": true,
+  "orderPriceMinTickSize": 0.001,
+  "orderMinSize": 5
+}
