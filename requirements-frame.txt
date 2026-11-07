@@ -1,0 +1,8 @@
+pydantic>=2.7
+google-genai>=1.0
+nicegui>=2.0
+numpy>=1.26
+python-dotenv>=1.0
+pytest>=8.0
+# optional, pulls torch: real bge-small embeddings instead of the hashing fallback
+# sentence-transformers>=3.0

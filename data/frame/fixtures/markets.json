@@ -1,0 +1,55 @@
+[
+  {
+    "venue": "polymarket", "id": "SAMPLE-pm-fed-dec26", "event_id": "SAMPLE-pm-fed-2026",
+    "title": "Fed rate cut at the December 2026 FOMC meeting?",
+    "rules_text": "This market will resolve to \"Yes\" if the Federal Reserve announces a cut to the target federal funds rate at its December 2026 FOMC meeting. The resolution source will be the official FOMC statement published on federalreserve.gov. If no FOMC meeting is held by December 31, 2026, 11:59 PM ET, this market will resolve to \"No\".",
+    "close_time_utc": "2026-12-16T19:00:00Z", "category": "economics",
+    "yes_bid": 0.61, "yes_ask": 0.62, "no_bid": 0.37, "no_ask": 0.39,
+    "url": "https://polymarket.com/event/SAMPLE-fed-december-2026"
+  },
+  {
+    "venue": "kalshi", "id": "SAMPLE-KXFED-26DEC", "event_id": "SAMPLE-KXFED-26DEC",
+    "title": "Will the Fed cut rates in December 2026?",
+    "rules_text": "If the upper bound of the federal funds target range announced after the Federal Reserve's December 2026 meeting is lower than the upper bound in effect immediately before that meeting, then the market resolves to Yes. Source: Federal Reserve Board press release. Trading closes at 1:59 PM ET on the meeting day.",
+    "close_time_utc": "2026-12-16T18:59:00Z", "category": "economics",
+    "yes_bid": 0.56, "yes_ask": 0.58, "no_bid": 0.42, "no_ask": 0.44,
+    "url": "https://kalshi.com/markets/SAMPLE-KXFED-26DEC"
+  },
+  {
+    "venue": "predictit", "id": "SAMPLE-pi-fed-dec", "event_id": "SAMPLE-pi-fed",
+    "title": "Fed cut in December 2026?", "rules_text": "",
+    "close_time_utc": "2026-12-16T19:00:00Z", "category": "economics",
+    "yes_bid": 0.59, "yes_ask": 0.61, "no_bid": 0.39, "no_ask": 0.41,
+    "url": "https://www.predictit.org/markets/detail/SAMPLE-fed-dec"
+  },
+  {
+    "venue": "polymarket", "id": "SAMPLE-pm-ukge-mar27", "event_id": "SAMPLE-pm-ukge-call",
+    "title": "UK general election called by March 31, 2027?",
+    "rules_text": "This market will resolve to \"Yes\" if a UK general election is formally called (Parliament dissolved by royal proclamation) between market creation and March 31, 2027, 11:59 PM GMT. Otherwise, this market will resolve to \"No\". The primary resolution source will be official UK Government announcements.",
+    "close_time_utc": "2027-03-31T23:59:00Z", "category": "politics",
+    "yes_bid": 0.07, "yes_ask": 0.08, "no_bid": 0.92, "no_ask": 0.93,
+    "url": "https://polymarket.com/event/SAMPLE-uk-election-called-by"
+  },
+  {
+    "venue": "polymarket", "id": "SAMPLE-pm-ukge-jun27", "event_id": "SAMPLE-pm-ukge-call",
+    "title": "UK general election called by June 30, 2027?",
+    "rules_text": "This market will resolve to \"Yes\" if a UK general election is formally called (Parliament dissolved by royal proclamation) between market creation and June 30, 2027, 11:59 PM BST. Otherwise, this market will resolve to \"No\". The primary resolution source will be official UK Government announcements.",
+    "close_time_utc": "2027-06-30T22:59:00Z", "category": "politics",
+    "yes_bid": 0.05, "yes_ask": 0.06, "no_bid": 0.93, "no_ask": 0.95,
+    "url": "https://polymarket.com/event/SAMPLE-uk-election-called-by"
+  },
+  {
+    "venue": "kalshi", "id": "SAMPLE-KXEPL-27", "event_id": "SAMPLE-KXEPL-27",
+    "title": "Will Arsenal win the 2026-27 Premier League?",
+    "rules_text": "Resolves Yes if Arsenal are confirmed as champions of the 2026-27 Premier League season per the Premier League's official website.",
+    "close_time_utc": "2027-05-30T15:00:00Z", "category": "sports",
+    "yes_bid": 0.24, "yes_ask": 0.26, "no_bid": 0.74, "no_ask": 0.76,
+    "url": "https://kalshi.com/markets/SAMPLE-KXEPL-27"
+  },
+  {
+    "venue": "polymarket", "id": "SAMPLE-pm-crypto", "event_id": "SAMPLE-pm-crypto",
+    "title": "Excluded sample: crypto market (filtered by category)",
+    "rules_text": "Excluded by the no-crypto rule.", "close_time_utc": "2026-12-31T23:59:00Z", "category": "crypto",
+    "url": "https://polymarket.com/event/SAMPLE-crypto"
+  }
+]

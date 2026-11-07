@@ -1,0 +1,9 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.nicegui/
+data/frame/audit.jsonl
+data/frame/labels.jsonl
+data/frame/cache/
