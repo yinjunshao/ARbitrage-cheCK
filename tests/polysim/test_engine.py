@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import NO, YES, make_book
+from polysim_helpers import NO, YES, make_book
 from polysim import Backtester, BookEvent, PriceEvent, ResolutionEvent, Strategy, TimeInForce
 from polysim.data import SyntheticConfig, generate_binary_market
 from polysim.strategies import REGISTRY, BuyAndHold

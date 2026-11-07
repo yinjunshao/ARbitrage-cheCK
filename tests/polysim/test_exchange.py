@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import NO, YES, make_book
+from polysim_helpers import NO, YES, make_book
 from polysim import FeeModel, FillMode, Liquidity, Order, OrderStatus, OrderType, Side, TimeInForce
 
 

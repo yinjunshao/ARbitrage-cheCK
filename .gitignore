@@ -1,10 +1,17 @@
+.env
+.venv/
 __pycache__/
 *.pyc
-*.egg-info/
 .pytest_cache/
-.venv/
+.nicegui/
+data/frame/audit.jsonl
+data/frame/labels.jsonl
+data/frame/cache/
+
+# polysim
+*.egg-info/
 build/
 dist/
-/data/
+# recorded books/events: keep them out of git, except test fixtures
 *.jsonl
-!tests/fixtures/*.jsonl
+!tests/polysim/fixtures/*.jsonl
