@@ -15,3 +15,6 @@ dist/
 # recorded books/events: keep them out of git, except test fixtures
 *.jsonl
 !tests/polysim/fixtures/*.jsonl
+
+# local recordings of Polymarket data: never published (their terms bar redistribution)
+recordings/

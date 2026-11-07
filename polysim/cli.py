@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .data import (
     PolymarketClient,
     SyntheticConfig,
     generate_binary_market,
     load_markets,
+    read_event_files,
     read_events,
     record_books,
     save_markets,
@@ -50,7 +52,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             print("--events requires --markets (a JSON file from `polysim fetch`)", file=sys.stderr)
             return 2
         markets = load_markets(args.markets)
-        events = read_events(args.events)
+        events = read_event_files(args.events)
     else:
         cfg = SyntheticConfig(n_steps=args.steps)
         market, events = generate_binary_market(cfg, seed=args.seed)
@@ -135,7 +137,7 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         if not (args.candidates and args.events and args.markets):
             print("evaluate needs --candidates, --events and --markets (or --demo)", file=sys.stderr)
             return 2
-        markets, events = load_markets(args.markets), list(read_events(args.events))
+        markets, events = load_markets(args.markets), read_event_files(args.events)
         cands, bad = load_candidates(args.candidates)
         split = None
         label = "recorded Polymarket data"
@@ -190,6 +192,43 @@ def cmd_fetch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_record_events(args: argparse.Namespace) -> int:
+    from .data.recorder import EventRecorder
+
+    rec = EventRecorder(PolymarketClient(), args.slugs, args.out_dir, interval=args.interval, depth=args.depth,
+                        rate=args.rate, refresh=args.refresh, log=print)
+    rec.run(args.duration)
+    return 0
+
+
+def cmd_resolutions(args: argparse.Namespace) -> int:
+    """Look up which recorded markets have resolved and append their results."""
+    from .data.polymarket import parse_resolution
+    from .events import event_from_dict, event_to_dict
+
+    markets = load_markets(args.markets)
+    out = Path(args.out)
+    done = set()
+    if out.exists():
+        done = {event_from_dict(json.loads(l)).market_id for l in out.read_text().splitlines() if l.strip()}
+    client = PolymarketClient()
+    new = 0
+    with out.open("a", encoding="utf-8") as fh:
+        for m in markets:
+            if m.market_id in done or not m.slug:
+                continue
+            try:
+                ev = parse_resolution(client.get_market_raw(m.slug))
+            except Exception as exc:
+                print(f"warn: {m.slug}: {exc}", file=sys.stderr)
+                continue
+            if ev is not None:
+                fh.write(json.dumps(event_to_dict(ev)) + "\n")
+                new += 1
+    print(f"{new} new resolution(s) written to {out} ({len(done) + new} of {len(markets)} markets resolved)")
+    return 0
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     client = PolymarketClient()
     market = client.get_market(args.slug)
@@ -213,7 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
     bt = sub.add_parser("backtest", help="run a strategy on synthetic or recorded data")
     bt.add_argument("--strategy", choices=sorted(REGISTRY), default="buy_and_hold")
     bt.add_argument("--param", action="append", default=[], metavar="K=V", help="strategy kwarg (repeatable)")
-    bt.add_argument("--events", help="JSONL event file (from `fetch` or `record`)")
+    bt.add_argument("--events", nargs="+", help="event files or recorder folders (from `fetch`/`record`)")
     bt.add_argument("--markets", help="markets JSON file matching --events")
     bt.add_argument("--seed", type=int, default=0, help="synthetic market seed")
     bt.add_argument("--steps", type=int, default=500, help="synthetic market length")
@@ -248,7 +287,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("evaluate", help="our checker vs a naive price-only checker, paper-executed to resolution")
     ev.add_argument("--demo", action="store_true", help="run on a built-in SYNTHETIC dataset (offline)")
     ev.add_argument("--candidates", help="JSONL of claimed arbitrages (id, ts, token_ids, floor, rule_check)")
-    ev.add_argument("--events", help="recorded books + resolutions (JSONL)")
+    ev.add_argument("--events", nargs="+", help="recorded books + resolutions: files or recorder folders")
     ev.add_argument("--markets", help="markets JSON matching --events")
     ev.add_argument("--split-ts", help="tune before this time, test after (unix ts or ISO date)")
     ev.add_argument("--size", type=float, default=100.0, help="baskets the naive checker buys")
@@ -279,6 +318,21 @@ def build_parser() -> argparse.ArgumentParser:
     fe.add_argument("--out", default="events.jsonl")
     fe.add_argument("--markets-out", default="markets.json")
     fe.set_defaults(func=cmd_fetch)
+
+    re_ = sub.add_parser("record-events", help="record every open market of one or more events (e.g. ladders)")
+    re_.add_argument("slugs", nargs="+", help="Gamma event slugs")
+    re_.add_argument("--out-dir", default="recordings", help="kept out of git (see .gitignore)")
+    re_.add_argument("--interval", type=float, default=60.0, help="seconds between rounds")
+    re_.add_argument("--depth", type=int, default=20, help="book levels kept per side")
+    re_.add_argument("--rate", type=float, default=5.0, help="max requests per second")
+    re_.add_argument("--refresh", type=float, default=1800.0, help="seconds between event refreshes")
+    re_.add_argument("--duration", type=float, default=14 * 86400.0, help="seconds to run (Ctrl-C to stop)")
+    re_.set_defaults(func=cmd_record_events)
+
+    rs = sub.add_parser("resolutions", help="append results for recorded markets that have resolved")
+    rs.add_argument("--markets", default="recordings/markets.json")
+    rs.add_argument("--out", default="recordings/resolutions.jsonl")
+    rs.set_defaults(func=cmd_resolutions)
 
     rc = sub.add_parser("record", help="poll live order books for a market slug")
     rc.add_argument("slug")

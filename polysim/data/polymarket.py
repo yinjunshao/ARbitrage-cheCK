@@ -54,6 +54,8 @@ def parse_gamma_market(raw: dict) -> Market:
         end_ts=_iso_to_ts(raw.get("endDate")),
         active=bool(raw.get("active", True)),
         closed=bool(raw.get("closed", False)),
+        group_title=str(raw.get("groupItemTitle") or ""),
+        event_slug=str((raw.get("events") or [{}])[0].get("slug", "")) if isinstance(raw.get("events"), list) else "",
         **_parse_fees(raw),
     )
 
@@ -123,7 +125,10 @@ class PolymarketClient:
         self.gamma_url = gamma_url.rstrip("/")
         self.clob_url = clob_url.rstrip("/")
         self.timeout = timeout
-        self.session = session or requests.Session()
+        if session is None:
+            session = requests.Session()
+            session.headers["User-Agent"] = "polysim/0.1 (read-only research; paper trading only)"
+        self.session = session
 
     def _get(self, base: str, path: str, params: dict | None = None) -> Any:
         params = {k: v for k, v in (params or {}).items() if v is not None}
@@ -165,6 +170,13 @@ class PolymarketClient:
 
     def get_market(self, slug: str) -> Market:
         return parse_gamma_market(self.get_market_raw(slug))
+
+    def get_event_raw(self, slug: str) -> dict:
+        """A Gamma event (e.g. a date or price ladder) with all its markets and rules text."""
+        res = self._get(self.gamma_url, "/events", {"slug": slug})
+        if not res:
+            raise LookupError(f"no event with slug {slug!r}")
+        return res[0]
 
     # ---- CLOB
 

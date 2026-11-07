@@ -36,6 +36,11 @@ polysim audit-verify audit.jsonl
 polysim backtest --strategy buy_and_hold --approve cli --approver-name "Your Name"
 
 # Real data (needs access to gamma-api.polymarket.com / clob.polymarket.com)
+# Record whole ladders (every open market of each event) until stopped; see "Recording" below
+caffeinate -i polysim record-events anthropic-ipo-by what-price-will-bitcoin-hit-in-november-2026
+polysim resolutions                       # later: add results for markets that have resolved
+polysim evaluate --candidates candidates.jsonl --events recordings --markets recordings/markets.json \
+    --split-ts 2026-11-12
 polysim markets --limit 20
 polysim record <market-slug> --interval 5 --duration 3600 --out books.jsonl
 polysim fetch <market-slug> --fidelity 60 --out events.jsonl --markets-out markets.json
@@ -94,6 +99,22 @@ polysim evaluate --candidates candidates.jsonl --events books.jsonl --markets ma
 ```
 
 **About `--demo`.** It runs on an invented dataset of 60 ladder pairs: real gaps, gaps eaten by fees, thin books, rule mismatches, rules that couldn't be confirmed, and sellers who vanish during the delay, plus 6 deliberately bad inputs. It shows how the evaluation behaves. **It is not evidence that the checker works**; the result is built into the data. Only results on recorded data count.
+
+## Recording real data: `polysim record-events`
+
+Polymarket keeps fine-grained history for only about a week, and it never keeps full order books, so we record forward ourselves. The later part of a recording is data the checker has never seen.
+
+`polysim record-events <event-slug> ...` records **every open market of each event**, which is what a ladder is: one event with a market per date or price level. Once a minute, for each token, it saves the top 20 levels of the book. Files go to `recordings/`:
+
+- `books-YYYYMMDD.jsonl.gz`: one gzip file per UTC day, written once per round, so a crash loses at most one minute.
+- `markets.json`: every market seen, with its fee schedule and its rung in the ladder (e.g. "December 31", "↑ 100,000").
+- `events/<slug>.json`: the raw event, including each market's rules text.
+- `resolutions.jsonl`: each market's result as soon as it resolves. The recorder refreshes events every 30 minutes, adds new markets and stops recording closed ones. `polysim resolutions` fills in any results after recording stops.
+- `recorder.log`: progress and errors. A failed request is logged and skipped, never fatal.
+
+It sends at most 5 requests a second, far below Polymarket's documented limits, and backs off on HTTP 429. It reads only public GET endpoints and identifies itself as a read-only research tool. `recordings/` is in `.gitignore`, because Polymarket's terms bar redistributing their data. On a Mac, `caffeinate -i` keeps the computer from sleeping while it runs. Restarting it with the same folder carries on where it left off.
+
+`--events` in `evaluate` and `backtest` accepts recorder folders as well as files.
 
 ## How it works, step by step
 
