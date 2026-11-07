@@ -9,3 +9,10 @@ data/frame/labels.jsonl
 data/frame/cache/
 data/frame/core_decisions.jsonl
 arbcheck-project/report.html
+# polysim
+*.egg-info/
+build/
+dist/
+# recorded books/events: keep them out of git, except test fixtures
+*.jsonl
+!tests/polysim/fixtures/*.jsonl
