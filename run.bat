@@ -1,19 +1,18 @@
 @echo off
-REM False-Arb Checker: LLM frame (Gemini) + numeric core (arbcheck), one command.
+REM False-Arb Checker on LIVE data: LLM frame (Gemini) + numeric core (arbcheck) + polysim.
 REM
-REM   run.bat            set up, run all tests, start the app (demo markets; live Gemini if a key is set, else replay)
-REM   run.bat replay     offline: demo markets + recorded Gemini outputs (no key, no network)
-REM   run.bat demo       demo markets + live Gemini
-REM   run.bat live       live Polymarket/Manifold through arbcheck's read-only client + live Gemini
-REM   run.bat live-kalshi   as live, plus Kalshi (ONLY if you are a Kalshi member, on your own computer)
-REM   run.bat test       set up and run every test, then stop
-REM   run.bat core       the core's own app (arbcheck, no LLM frame) on http://127.0.0.1:8765
+REM   run.bat               set up, run all tests, start the app on live Polymarket data  (http://127.0.0.1:8080)
+REM   run.bat kalshi        same, plus Kalshi (ONLY if you are a Kalshi member, on your own computer)
+REM   run.bat monitor       scan live markets every 5 minutes; log every suggestion; re-price confirmed pairs
+REM   run.bat monitor-kalshi   the monitor, plus Kalshi (members only)
+REM   run.bat test          set up and run every test (core, polysim, frame), then stop
+REM   run.bat core          the core's own app, no LLM frame (http://127.0.0.1:8765)
 REM
-REM Paper only. Nothing here places orders.
+REM Needs GEMINI_API_KEY (Google AI Studio) in .env. Paper only: nothing here places orders.
 setlocal EnableExtensions
 cd /d "%~dp0"
 set "MODE=%~1"
-if "%MODE%"=="" set "MODE=auto"
+if "%MODE%"=="" set "MODE=app"
 set "PY=.venv\Scripts\python.exe"
 
 REM ---------- 1. Python environment ----------
@@ -26,7 +25,7 @@ if not exist "%PY%" (
         python -m venv .venv || goto :fail
     )
 )
-"%PY%" -c "import nicegui, google.genai, pydantic, numpy, dotenv, pytest" >nul 2>nul
+"%PY%" -c "import nicegui, google.genai, pydantic, numpy, dotenv, pytest, requests" >nul 2>nul
 if errorlevel 1 (
     echo [setup] installing requirements-frame.txt
     where uv >nul 2>nul
@@ -40,47 +39,53 @@ if errorlevel 1 (
 REM ---------- 2. API key ----------
 if not exist ".env" (
     copy /y ".env.example" ".env" >nul
-    echo [setup] created .env from .env.example. Put your Google AI Studio key in .env as GEMINI_API_KEY=...
+    echo [setup] created .env from .env.example
 )
 set "HASKEY=0"
 findstr /r /c:"^GEMINI_API_KEY=..*" ".env" >nul 2>nul && set "HASKEY=1"
 
 if /i "%MODE%"=="core" goto :core
 
-REM ---------- 3. Tests: core (arbcheck) then frame ----------
+REM ---------- 3. Tests ----------
+if /i "%MODE%"=="monitor" goto :keycheck
+if /i "%MODE%"=="monitor-kalshi" goto :keycheck
 echo.
 echo [test] core: arbcheck
 pushd arbcheck-project
 "..\%PY%" -m pytest -q -p no:warnings || (popd & goto :fail)
 popd
-echo [test] frame (live Gemini smoke test runs only if a key is set)
-"%PY%" -m pytest tests\frame -q -p no:warnings || goto :fail
+echo [test] polysim + frame (the live Gemini smoke test runs only if a key is set)
+"%PY%" -m pytest tests -q -p no:warnings || goto :fail
 if /i "%MODE%"=="test" goto :done
 
-REM ---------- 4. App ----------
-set "FLAG=--demo"
-if /i "%MODE%"=="replay" set "FLAG=--replay"
-if /i "%MODE%"=="live" set "FLAG=--live"
-if /i "%MODE%"=="live-kalshi" set "FLAG=--live --kalshi-member"
-if /i "%MODE%"=="auto" if "%HASKEY%"=="0" (
-    echo [app] no GEMINI_API_KEY in .env, so starting in offline replay mode
-    set "FLAG=--replay"
-)
-if not "%FLAG%"=="--replay" if "%HASKEY%"=="0" (
-    echo [app] %MODE% needs GEMINI_API_KEY in .env. Use "run.bat replay" to run offline.
+:keycheck
+if "%HASKEY%"=="0" (
+    echo.
+    echo [setup] No GEMINI_API_KEY in .env. Put your Google AI Studio key in .env as GEMINI_API_KEY=... and run again.
     goto :fail
 )
+
+REM ---------- 4. Run ----------
+set "KFLAG="
+if /i "%MODE%"=="kalshi" set "KFLAG=--kalshi-member"
+if /i "%MODE%"=="monitor-kalshi" set "KFLAG=--kalshi-member"
+if /i "%MODE:~0,7%"=="monitor" (
+    echo.
+    echo [monitor] live markets every 5 minutes %KFLAG%   Ctrl+C to stop. Log: data\frame\suggestions.jsonl
+    "%PY%" -m frame.monitor %KFLAG%
+    goto :done
+)
 echo.
-echo [app] http://127.0.0.1:8080   (%FLAG%)   Ctrl+C to stop
+echo [app] http://127.0.0.1:8080   live data %KFLAG%   Ctrl+C to stop
 start "" "http://127.0.0.1:8080"
-"%PY%" -m app_frame.main %FLAG%
+"%PY%" -m app_frame.main %KFLAG%
 goto :done
 
 :core
-echo [core] arbcheck app on demo markets: http://127.0.0.1:8765   Ctrl+C to stop
+echo [core] arbcheck's own app on live data: http://127.0.0.1:8765   Ctrl+C to stop
 start "" "http://127.0.0.1:8765"
 pushd arbcheck-project
-"..\%PY%" -m arbcheck serve --demo
+"..\%PY%" -m arbcheck serve
 popd
 goto :done
 

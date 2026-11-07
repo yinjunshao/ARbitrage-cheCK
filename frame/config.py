@@ -33,19 +33,25 @@ class Config:
     core: str = os.getenv("FRAME_CORE", "arbcheck")
     kalshi_member: bool = os.getenv("FRAME_KALSHI_MEMBER", "0") == "1"
 
-    top_k: int = int(os.getenv("FRAME_TOP_K", "8"))
+    top_k: int = int(os.getenv("FRAME_TOP_K", "5"))
     date_window_days: int = int(os.getenv("FRAME_DATE_WINDOW_DAYS", "7"))
+    min_similarity: float = float(os.getenv("FRAME_MIN_SIMILARITY", "0.45"))
+    max_judge_per_scan: int = int(os.getenv("FRAME_MAX_JUDGE_PER_SCAN", "30"))  # LLM budget; rest retried next scan
+    max_sets_per_scan: int = int(os.getenv("FRAME_MAX_SETS_PER_SCAN", "8"))     # venue exclusive sets priced (no LLM)
     judge_concurrency: int = int(os.getenv("FRAME_JUDGE_CONCURRENCY", "4"))
     fewshot_k: int = int(os.getenv("FRAME_FEWSHOT_K", "5"))
     min_surface_confidence: str = "medium"  # surface only medium/high to review
-    excluded_categories: tuple[str, ...] = ("crypto",)
+    # Crypto is allowed, but only paired with crypto of the same coin (frame/rules.py).
+    excluded_categories: tuple[str, ...] = ()
+    monitor_every_s: int = int(os.getenv("FRAME_MONITOR_EVERY_S", "300"))
 
     audit_path: Path = DATA / "audit.jsonl"
     labels_path: Path = DATA / "labels.jsonl"
+    suggestions_path: Path = DATA / "suggestions.jsonl"
+    confirmed_path: Path = DATA / "confirmed.jsonl"
     cache_dir: Path = DATA / "cache"
-    fixtures_dir: Path = DATA / "fixtures"
-    # recorded Gemini outputs on arbcheck's demo universe (scripts/record_replay.py)
-    replay_file: Path = DATA / "fixtures" / "llm_replay.json"
+    fixtures_dir: Path = ROOT / "tests" / "frame" / "fixtures"      # test-only sample data
+    replay_file: Path = ROOT / "tests" / "frame" / "fixtures" / "llm_replay_sample.json"
 
 
 def get_config() -> Config:

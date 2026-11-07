@@ -58,7 +58,6 @@ VERDICT = {"OK": "worth_a_look", "WARN": "look_closely", "BLOCKED": "blocked", "
 # The core guard needs confidence >= 0.75 by default. A human-edited relation is asserted at the minimum.
 CONFIDENCE = {"low": 0.5, "medium": 0.75, "high": 0.9}
 HUMAN_ASSERTED = 0.75
-_CRYPTO_WORDS = ("bitcoin", "btc", "ethereum", "eth ", "solana", "crypto", "dogecoin", "xrp")
 
 
 def tighten(core: CoreResult, verdict: str, flag: str) -> CoreResult:
@@ -95,13 +94,18 @@ class ArbcheckAdapter:
         self.demo, self.kalshi_member, self.live_limit = demo, kalshi_member, live_limit
         self.log_path = Path(log_path) if log_path else DATA / "core_decisions.jsonl"
         self._core: dict[str, object] = {}   # "venue:id" -> arbcheck Market (keeps the full order books)
+        self._tags: dict[str, list[str]] = {}
+        self._event_tags: dict[str, list[str]] = {}
+        self.max_events, self.max_per_event = 200, 40
+        self.last_notes: list[str] = []
         if demo:
             universe = demo_data.demo_markets()
             self.registry = venues.Registry([demo_data.DemoVenue(n, universe) for n in ("Polymarket", "Kalshi", "Manifold")])
             self._universe = universe
         else:
             from arbcheck.compliance import ReadOnlyClient
-            self.registry = venues.build_registry(ReadOnlyClient(), kalshi_member, loopback=True)
+            self.client = ReadOnlyClient()
+            self.registry = venues.build_registry(self.client, kalshi_member, loopback=True)
             self._universe = None
 
     # -- time ----------------------------------------------------------------------
@@ -112,24 +116,69 @@ class ArbcheckAdapter:
     def _key(self, venue: str, mid: str) -> str:
         return f"{venue.lower()}:{mid}"
 
-    def to_frame(self, cm) -> Market:
+    def to_frame(self, cm, tags: list[str] | None = None) -> Market:
+        """arbcheck Market -> frame Market. `tags` = the venue's own event tags / category, if known."""
+        from .categories import canonical
         self._core[self._key(cm.venue, cm.id)] = cm
-        q = cm.question.lower()
-        crypto = cm.venue == "Polymarket" and (getattr(cm.fee, "k", 0) == 0.07 or any(w in q + " " for w in _CRYPTO_WORDS))
+        tags = tags if tags is not None else self._tags.get(self._key(cm.venue, cm.id), [])
+        self._tags[self._key(cm.venue, cm.id)] = tags
         return Market(
             venue=cm.venue.lower() if cm.venue.lower() in ("polymarket", "kalshi", "manifold") else "manual",
             id=cm.id, event_id=cm.group or None, title=cm.question, rules_text=cm.rules,
-            close_time_utc=cm.end.isoformat(), category="crypto" if crypto else None,
+            close_time_utc=cm.end.isoformat(), category=canonical(tags), tags=list(tags),
             yes_bid=cm.yes.best_bid, yes_ask=cm.yes.best_ask, no_bid=cm.no.best_bid, no_ask=cm.no.best_ask,
             url=cm.url or None,
         )
 
+    def cheap_link(self, a: Market, b: Market) -> bool:
+        """The core's deterministic check (nested deadlines, thresholds, same question). No LLM.
+        Used to pick which pairs INSIDE one event are worth sending to the judge."""
+        ca, cb = self._core.get(self._key(a.venue, a.id)), self._core.get(self._key(b.venue, b.id))
+        if ca is None or cb is None:
+            return False
+        # A venue-declared multi-outcome set (Polymarket negRisk, Kalshi mutually_exclusive) is priced as a SET
+        # by price_set(); its outcomes are not sent to the judge in pairs.
+        if ca.meta.get("exclusive") and cb.meta.get("exclusive") and ca.group and ca.group == cb.group:
+            return False
+        x, y = (ca, cb) if ca.end <= cb.end else (cb, ca)
+        # Only nested deadlines / thresholds. The heuristic calls "Will X win?" vs "Will Y win?" equivalent
+        # (only the name differs), which is wrong for outcomes of one event, so "equivalent" is not a link here.
+        return self.relations.HeuristicExtractor().extract(x, y).kind in ("a_implies_b", "b_implies_a")
+
+    def exclusive_sets(self, markets: list[Market], max_sets: int, max_size: int = 12) -> list[list[Market]]:
+        """Venue-declared mutually exclusive events (no LLM needed), largest volume first, small enough to price."""
+        groups: dict[tuple[str, str], list[Market]] = {}
+        for m in markets:
+            cm = self._core.get(self._key(m.venue, m.id))
+            if cm is not None and cm.meta.get("exclusive") and m.event_id:
+                groups.setdefault((m.venue, m.event_id), []).append(m)
+        sets = [g for g in groups.values() if 3 <= len(g) <= max_size]
+        return sets[:max_sets]
+
+    def price_set(self, legs: list[Market], budget: float) -> CoreResult:
+        """Price a venue-declared exclusive set with the core's structural relation (at most one Yes)."""
+        cms = [self._to_core(m) for m in legs]
+        rel = self.relations.structural_relation(
+            "at_most_one", "The venue lists these as mutually exclusive outcomes of one event.", "metadata", 0.9,
+            "venue-metadata")
+        g = self.guard_mod.Guard(self.guard_mod.Limits(max_notional=budget, max_total_notional=max(budget, 1000.0)))
+        kalshi_live = not self.demo and any(m.venue == "Kalshi" for m in cms)
+        log = None if kalshi_live else self.guard_mod.DecisionLog(str(self.log_path))
+        case = self.pipeline.evaluate_case(cms, rel, g, self.now(), log=log, role="related", note="venue set")
+        return self._from_case(case)
+
     def _to_core(self, m: Market):
         """The core Market for a frame leg: the registered one, else built from a manual entry."""
         cm = self._core.get(self._key(m.venue, m.id))
+        if cm is None and not self.demo and m.url and m.venue != "manual":
+            self.resolve(m.url)            # e.g. a confirmed relation re-priced after a restart
+            cm = self._core.get(self._key(m.venue, m.id))
+            if cm is None:
+                raise ValueError(f"{m.venue} market {m.id} is no longer open or could not be found.")
         if cm is not None:
-            if not self.demo and cm.tradeable and not cm.has_book:
-                self.registry.hydrate(cm)   # live order books, through the core's compliant client
+            if not self.demo and cm.tradeable:
+                # Always fresh order books when pricing (the core's client caches for 60 s).
+                self.registry.venues[cm.venue].hydrate(cm)
             return cm
         if m.yes_ask is None or m.close_time_utc is None or not m.depth:
             raise ValueError(f"Manual leg '{m.title}' needs a Yes ask, a Yes bid, a depth and a close time.")
@@ -144,22 +193,102 @@ class ArbcheckAdapter:
 
     # -- discovery + input ------------------------------------------------------------
     def list_open_markets(self, venues: list[str]) -> list[Market]:
+        """Open markets with their venue categories. Live data goes only through arbcheck's
+        ReadOnlyClient (allowlisted GETs, rate-spaced, cached) and arbcheck's own parsers."""
         wanted = {v.lower() for v in venues}
-        if self.demo:
-            return [self.to_frame(m) for m in self._universe if m.venue.lower() in wanted]
-        out = []
+        if self.demo:  # test-only invented universe: one shared category so the type rule passes
+            return [self.to_frame(m, ["other"]) for m in self._universe if m.venue.lower() in wanted]
+        self.last_notes = []
+        out: list[Market] = []
         if "polymarket" in wanted:
-            from arbcheck import polymarket
-            out += [self.to_frame(m) for m in polymarket.fetch_stubs(self.live_limit)]
-        # arbcheck has no "list every open market" call for Kalshi/Manifold; they are reached
-        # through resolve() (links/search) and the core's own cross-venue search.
+            out += self._polymarket_events()
+        if "kalshi" in wanted:
+            if self.kalshi_member:
+                out += self._kalshi_events()
+            else:
+                self.last_notes.append("Kalshi is off (its Developer Agreement): start with --kalshi-member if you are a member.")
         return out
+
+    def _polymarket_events(self) -> list[Market]:
+        from arbcheck import polymarket
+        out, offset, page = [], 0, 25
+        while offset < self.max_events:
+            try:
+                events = self.client.get(f"{polymarket.GAMMA}/events", {
+                    "closed": "false", "active": "true", "limit": page, "offset": offset,
+                    "order": "volume24hr", "ascending": "false"})
+            except Exception as e:  # one venue failing never stops the scan
+                if "too large" in str(e) and page > 1:   # arbcheck caps responses at 5 MB: smaller pages
+                    page //= 2
+                    continue
+                self.last_notes.append(f"Polymarket events (offset {offset}): {e}")
+                break
+            if not isinstance(events, list) or not events:
+                break
+            for ev in events:
+                tags = [t.get("slug") or t.get("label") for t in (ev.get("tags") or []) if isinstance(t, dict)]
+                self._event_tags[ev.get("slug", "")] = tags
+                for cm in polymarket.stubs_from_event(ev)[: self.max_per_event]:
+                    out.append(self.to_frame(cm, tags))
+            offset += len(events)
+        return out
+
+    def _kalshi_events(self) -> list[Market]:
+        from arbcheck import kalshi
+        out, cursor, seen = [], "", 0
+        while seen < self.max_events:
+            params = {"status": "open", "with_nested_markets": "true", "limit": 100}
+            if cursor:
+                params["cursor"] = cursor
+            try:
+                data = self.client.get(f"{kalshi.BASE}/events", params)
+            except Exception as e:
+                self.last_notes.append(f"Kalshi events: {e}")
+                break
+            for ev in data.get("events") or []:
+                tags = [ev["category"]] if ev.get("category") else []
+                self._event_tags[ev.get("event_ticker", "")] = tags
+                for raw in (ev.get("markets") or [])[: self.max_per_event]:
+                    cm = kalshi.market_from(raw, ev)
+                    if cm:
+                        out.append(self.to_frame(cm, tags))
+                seen += 1
+            cursor = data.get("cursor") or ""
+            if not cursor:
+                break
+        return out
+
+    def _event_tags_for(self, cm) -> list[str]:
+        """Category for a market found by link/search: look its event up once (cached)."""
+        ev = cm.meta.get("event_slug") or cm.group or ""
+        if not ev or self.demo:
+            return []
+        if ev not in self._event_tags:
+            try:
+                if cm.venue == "Polymarket":
+                    from arbcheck import polymarket
+                    evs = self.client.get(f"{polymarket.GAMMA}/events", {"slug": ev})
+                    e = evs[0] if isinstance(evs, list) and evs else {}
+                    self._event_tags[ev] = [t.get("slug") or t.get("label") for t in (e.get("tags") or [])]
+                elif cm.venue == "Kalshi":
+                    from arbcheck import kalshi
+                    e = (self.client.get(f"{kalshi.BASE}/events/{ev}") or {}).get("event") or {}
+                    self._event_tags[ev] = [e["category"]] if e.get("category") else []
+                else:
+                    self._event_tags[ev] = []
+            except Exception:
+                self._event_tags[ev] = []
+        return self._event_tags[ev]
 
     def resolve(self, line: str) -> list[Market]:
         """A link or words -> matched markets, via the core's Registry (never fetches arbitrary URLs)."""
         res = self.registry.resolve(line)
         self.last_notes = list(res.notes) + list(self.registry.notes)
-        return [self.to_frame(m.market) for m in res.matches]
+        if res.kind == "unreadable" and "kalshi.com" in line.lower() and not self.kalshi_member:
+            self.last_notes = ["That is a Kalshi link, and Kalshi is switched off. Kalshi's Developer Agreement limits "
+                               "its data to a member's own trading, so it only runs if you start with --kalshi-member "
+                               "(run.bat kalshi)."]
+        return [self.to_frame(m.market, self._event_tags_for(m.market)) for m in res.matches]
 
     def compare_rules(self, a: Market, b: Market) -> VerifiedRuleDiff | None:
         # arbcheck's LLMExtractor is Anthropic-shaped and returns relation + flags in one call; the frame's

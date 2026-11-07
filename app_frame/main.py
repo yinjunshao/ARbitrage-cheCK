@@ -1,8 +1,7 @@
-"""NiceGUI app: Check · Candidates · Result · Log.  Paper only. No orders are placed.
+"""NiceGUI app: Check · Candidates · Suggestions · Result · Log.  Paper only. No orders are placed.
 
-    python -m app_frame.main --replay   # offline: arbcheck demo markets + recorded Gemini outputs
-    python -m app_frame.main --demo     # arbcheck demo markets + live Gemini (GEMINI_API_KEY)
-    python -m app_frame.main --live     # live Polymarket/Manifold via arbcheck's read-only client + live Gemini
+    python -m app_frame.main                    # live Polymarket via arbcheck's read-only client + live Gemini
+    python -m app_frame.main --kalshi-member    # also Kalshi (members only, on your own computer)
 """
 from __future__ import annotations
 
@@ -20,7 +19,7 @@ from frame.schemas import Market  # noqa: E402
 RELATIONS = ["same_event", "a_implies_b", "b_implies_a", "mutually_exclusive", "exhaustive_set"]
 USER = "analyst"
 P: Pipeline | None = None
-MODE = "demo"
+MODE = "live"
 VERDICT_STYLE = {"worth_a_look": "bg-green-100 text-green-900", "look_closely": "bg-amber-100 text-amber-900",
                  "blocked": "bg-red-100 text-red-900", "nothing_to_do": "bg-slate-100 text-slate-800"}
 
@@ -33,15 +32,16 @@ def banner():
     ui.query("body").style("background:#f8fafc;color:#0f172a")
     with ui.header().classes("items-center bg-slate-800"):
         ui.label("False-Arb Checker").classes("text-lg font-bold")
-        for path, name in (("/", "Check"), ("/candidates", "Candidates"), ("/log", "Log")):
+        for path, name in (("/", "Check"), ("/candidates", "Candidates"), ("/suggestions", "Suggestions"), ("/log", "Log")):
             ui.link(name, path).classes("text-white ml-4")
     with ui.row().classes("w-full bg-amber-200 text-black p-2 gap-4"):
         ui.label("PAPER ONLY. No orders are placed.").classes("font-bold")
         if P.adapter.name == "fake":
             ui.label("FAKE CORE: placeholder numbers.").classes("text-red-700 font-bold")
         if getattr(P.adapter, "demo", False):
-            ui.label("DEMO MARKETS: every market and price is invented.").classes("text-red-700 font-bold")
-        ui.label(f"mode {MODE} · LLM {getattr(P.llm, 'name', '?')} ({P.cfg.judge_model}) · core {P.adapter.name}")
+            ui.label("TEST MARKETS: invented.").classes("text-red-700 font-bold")
+        ui.label(f"LIVE data · Polymarket on · Kalshi {'ON' if P.cfg.kalshi_member else 'off (run.bat kalshi)'} · "
+                 f"LLM {P.cfg.judge_model} · core {P.adapter.name}")
 
 
 def market_card(m: Market, quotes: list[str]):
@@ -59,23 +59,30 @@ def market_card(m: Market, quotes: list[str]):
 def check_page():
     banner()
     with ui.column().classes("p-4 w-full max-w-5xl"):
-        ui.label("Proactive scan").classes("text-xl")
-        ui.label("Pull open markets, find related pairs, let Gemini judge them, then you confirm.").classes("text-sm")
+        ui.label("Proactive scan of live markets").classes("text-xl")
+        ui.label(f"Pulls the top {getattr(P.adapter, 'max_events', '?')} open events by 24h volume, applies the "
+                 f"suggestion rules (crypto only with the same coin; same category only), and lets Gemini judge up to "
+                 f"{P.cfg.max_judge_per_scan} new pairs. You confirm before the core prices anything.").classes("text-sm")
         status = ui.label("")
+        if P.last_scan:
+            s = P.last_scan
+            status.set_text(f"Last scan {s.scan}: {s.markets} markets, {s.candidates} candidates, {s.rule_refused} refused "
+                            f"by rules, {s.judged} judged, {s.surfaced} for review, {s.deferred} deferred.")
 
         async def scan():
-            status.set_text("Scanning… (live LLM calls can take a minute)")
+            status.set_text("Scanning live markets… (pulling events, then Gemini; can take a few minutes)")
             from nicegui import run
-            await run.io_bound(P.scan, ["polymarket", "kalshi", "manifold"])
+            s = await run.io_bound(P.scan, ["polymarket", "kalshi"])
+            for n in s.notes:
+                ui.notify(n, type="info", multi_line=True)
             ui.navigate.to("/candidates")
 
         ui.button("Scan venues for related markets", on_click=scan)
         ui.separator()
         ui.label("Check a pair: paste two links or describe two events").classes("text-xl")
         l1, l2 = ui.input("Event A (link or words)").classes("w-full"), ui.input("Event B (link or words)").classes("w-full")
-        if getattr(P.adapter, "demo", False):
-            ui.label("Demo links: https://polymarket.example/demo/zephyr-rate-cut · "
-                     "https://kalshi.example/demo/KXZEPHYR-26DEC").classes("text-xs text-gray-500")
+        ui.label("Polymarket, Kalshi (members only) and Manifold links. A link to a multi-outcome event checks each "
+                 "outcome against its closest match on the other side.").classes("text-xs text-gray-500")
         manual = {}
         with ui.expansion("Or enter both markets by hand"):
             with ui.row().classes("w-full"):
@@ -92,8 +99,9 @@ def check_page():
         async def run_check():
             from nicegui import run
             if l1.value and l2.value:
-                case, notes = await run.io_bound(P.check_lines, l1.value, l2.value)
-                if case is None:
+                ui.notify("Reading both links and asking Gemini…", type="info")
+                cases, notes = await run.io_bound(P.check_lines, l1.value, l2.value)
+                if not cases:
                     ui.notify(" ".join(notes), type="warning", multi_line=True)
                     return
             else:
@@ -129,7 +137,10 @@ def candidates_page():
             v = c.judged.verdict
             with ui.card().classes("w-full"):
                 ui.label(f"{v.relation} · confidence {v.confidence} · {'quotes verified' if c.judged.verified else 'UNVERIFIED'}"
-                         f" · source {c.judged.source}").classes("font-bold")
+                         f" · found by {c.how} · {c.judged.a.category or '?'} / {c.judged.b.category or '?'}").classes("font-bold")
+                if c.rule_note:
+                    ui.label(f"⚠ Suggestion rule {c.rule_note} (shown because you asked for this pair)").classes(
+                        "text-orange-700 text-sm")
                 ui.label(v.reasoning).classes("text-sm")
                 with ui.row().classes("w-full"):
                     market_card(c.judged.a, v.evidence_a)
@@ -222,6 +233,32 @@ def result_page(case_id: str):
             ui.label(f"Decision: {c.state}")
 
 
+@ui.page("/suggestions")
+def suggestions_page():
+    banner()
+    with ui.column().classes("p-4 w-full"):
+        ok, bad = P.suggestions.log.verify()
+        counts = P.suggestions.counts()
+        ui.label("Suggestion log: every pair considered, including the ones the rules refused").classes("text-xl")
+        ui.label(("Hash chain verified ✓" if ok else f"Hash chain BROKEN at record {bad}") + " · " +
+                 " · ".join(f"{k} {v}" for k, v in sorted(counts.items()))).classes(
+            "text-green-700" if ok else "text-red-700 font-bold")
+        ui.label(f"{P.cfg.suggestions_path} (also written by the monitor: run.bat monitor)").classes("text-xs text-gray-500")
+        show = ui.select(["all", "surfaced", "rule_refused", "judged", "filtered", "deferred", "human", "priced", "repriced"],
+                         value="all", label="Show")
+        rows = []
+        for r in P.suggestions.latest()[:1000]:
+            a, b = r.get("a", {}), r.get("b", {})
+            rows.append({"pair": r["pair"], "last": r["last"],
+                         "a": f"{a.get('venue', '')}: {a.get('title', '')[:70]}", "b": f"{b.get('venue', '')}: {b.get('title', '')[:70]}",
+                         "cats": f"{a.get('category')}/{b.get('category')}", "how": r.get("how", ""),
+                         "result": r.get("verdict") or r.get("relation") or r.get("action") or "",
+                         "why": (f"{r.get('rule', '')} {r.get('reason', '')}" if r["last"] == "rule_refused" else r.get("reason", ""))[:120]})
+        cols = [{"name": k, "label": k, "field": k, "align": "left"} for k in ("last", "a", "b", "cats", "how", "result", "why")]
+        table = ui.table(columns=cols, rows=rows, row_key="pair").classes("w-full")
+        show.on_value_change(lambda e: table.update_rows(rows if e.value == "all" else [r for r in rows if r["last"] == e.value]))
+
+
 @ui.page("/log")
 def log_page():
     banner()
@@ -237,12 +274,8 @@ def log_page():
 
 
 def main():
-    global P, MODE
+    global P
     ap = argparse.ArgumentParser()
-    g = ap.add_mutually_exclusive_group()
-    g.add_argument("--replay", action="store_true", help="offline: demo markets + recorded Gemini outputs")
-    g.add_argument("--demo", action="store_true", help="demo markets + live Gemini (default)")
-    g.add_argument("--live", action="store_true", help="live venues via arbcheck's read-only client + live Gemini")
     ap.add_argument("--kalshi-member", action="store_true", help="I am a Kalshi member running this on my own computer")
     ap.add_argument("--port", type=int, default=8080)
     args, _ = ap.parse_known_args()
@@ -252,8 +285,7 @@ def main():
     cfg = get_config()
     if args.kalshi_member:
         cfg = replace(cfg, kalshi_member=True)
-    MODE = "replay" if args.replay else "live" if args.live else "demo"
-    P = build(replay=args.replay, demo=not args.live, cfg=cfg)
+    P = build(cfg=cfg)  # live venues + live Gemini
     ui.run(title="False-Arb Checker", port=args.port, host="127.0.0.1", reload=False, show=False, dark=False)
 
 

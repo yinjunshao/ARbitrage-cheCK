@@ -1,6 +1,7 @@
 # Compliance notes (stub, not legal advice)
 
-- Prediction markets only. Crypto categories are excluded at discovery.
+- Prediction markets only. Crypto prediction markets are allowed but only ever paired with crypto markets on
+  the same coin (suggestion rule R2); they are never paired with other categories.
 - Read-only public data through the core's allowlisted client. The frame has no HTTP client of its own.
 - Kalshi data only with `--kalshi-member` (`run.bat live-kalshi`), app bound to 127.0.0.1. Kalshi prices are
   stripped from `labels.jsonl`, and the core's decision log is skipped when a live Kalshi leg is priced.

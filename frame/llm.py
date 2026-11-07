@@ -54,7 +54,7 @@ class GeminiClient(_Audited):
 
     def __init__(self, cfg: Config, audit: AuditLog | None = None):
         if not cfg.gemini_api_key:
-            raise LLMError("GEMINI_API_KEY is not set (Google AI Studio key). Use --replay for offline mode.")
+            raise LLMError("GEMINI_API_KEY is not set. Put your Google AI Studio key in .env as GEMINI_API_KEY=...")
         from google import genai  # imported lazily so tests don't need the SDK
 
         self._genai = genai
@@ -120,9 +120,9 @@ class ReplayLLM(FakeLLM):
 
 
 def make_llm(cfg: Config, audit: AuditLog | None, replay: bool) -> LLMClient:
-    if replay or not cfg.gemini_api_key:
+    if replay:
         return ReplayLLM(cfg.replay_file, audit)
-    return GeminiClient(cfg, audit)
+    return GeminiClient(cfg, audit)  # raises a clear error if GEMINI_API_KEY is missing
 
 
 class RecordingLLM:

@@ -16,3 +16,4 @@ dist/
 # recorded books/events: keep them out of git, except test fixtures
 *.jsonl
 !tests/polysim/fixtures/*.jsonl
+data/frame/monitor_run.txt

@@ -28,8 +28,11 @@ class AuditLog:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._last: tuple[int, str] | None = None   # (seq, hash) of the last record, cached after the first read
 
     def _tail(self) -> tuple[int, str]:
+        if self._last is not None:
+            return self._last
         if not self.path.exists():
             return -1, GENESIS
         last = None
@@ -49,6 +52,7 @@ class AuditLog:
             rec["hash"] = sha(prev + _canon(rec))
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(_canon(rec) + "\n")
+            self._last = (rec["seq"], rec["hash"])
             return rec
 
     def records(self) -> list[dict[str, Any]]:

@@ -29,7 +29,8 @@ class Market(BaseModel):
     outcome_label: str = "Yes"
     rules_text: str = ""
     close_time_utc: str | None = None  # ISO 8601
-    category: str | None = None
+    category: str | None = None   # canonical, see frame/categories.py
+    tags: list[str] = []          # raw venue tags / category, kept for the crypto-asset rule
     yes_bid: float | None = None
     yes_ask: float | None = None
     no_bid: float | None = None

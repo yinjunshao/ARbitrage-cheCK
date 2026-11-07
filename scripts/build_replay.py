@@ -1,4 +1,4 @@
-"""Write data/frame/fixtures/llm_replay_sample.json: hand-authored LLM outputs for the offline demo.
+"""Write tests/frame/fixtures/llm_replay_sample.json: hand-authored LLM outputs for the offline demo.
 
 These are NOT model outputs; they stand in for Gemini so `--replay` runs with no key or network.
 Keys are "<call>:<pair_id>", so they follow the fixture texts. Re-run after editing markets.json.
@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from frame.discover import load_fixture_markets  # noqa: E402
 from frame.judge import pair_id  # noqa: E402
 
-FX = Path(__file__).resolve().parent.parent / "data" / "frame" / "fixtures"
+FX = Path(__file__).resolve().parent.parent / "tests" / "frame" / "fixtures"
 m = {x.id: x for x in load_fixture_markets(FX / "markets.json")}
 fed_pm, fed_k = m["SAMPLE-pm-fed-dec26"], m["SAMPLE-KXFED-26DEC"]
 uk_mar, uk_jun = m["SAMPLE-pm-ukge-mar27"], m["SAMPLE-pm-ukge-jun27"]
