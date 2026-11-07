@@ -63,6 +63,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         synthesizer=BookSynthesizer(spread=args.synth_spread, size_per_level=args.synth_depth),
     )
     result = bt.run()
+    source = "recorded Polymarket data" if args.events else "SYNTHETIC data (invented market)"
+    print(f"PAPER RESULT on {source}: simulated fills, not real-world performance")
     print(f"strategy: {args.strategy}  markets: {', '.join(m.question for m in markets)}")
     print(result.summary())
     if args.json:

@@ -1,8 +1,18 @@
-# polysim: Polymarket trade simulation / backtesting framework
+# polysim: paper-trading simulator for Polymarket
 
-An event-driven simulator for trading Polymarket outcome tokens (YES/NO shares). This is the **foundation** release: data ingestion, order matching, the account, the strategy interface, the backtest engine, metrics and the CLI all work end to end, so the matching model and strategies can be iterated on top of it.
+polysim takes a trade idea and plays it out **on paper** against real Polymarket order books, so we can see what would actually have happened after fees, thin books and delays, all the way to resolution.
 
-It only uses Polymarket's **public read-only endpoints** and never places real orders. All results are paper results.
+> **Paper trading only.** polysim has no code that places, signs or cancels a real order, and it holds no keys, wallets or logins. It only sends read-only GET requests to Polymarket's public endpoints. Every number it prints is a simulated result, not real-world performance.
+
+## Who it is for and where it fits
+
+The project's user is a Polymarket trader (in a country where Polymarket is available) who sees a "risk-free" arbitrage posted online and has to decide whether to take it.
+
+- **arbcheck** (the numeric core) decides whether a gap is worth a look: it works out the guaranteed payout, walks the books and applies fees and risk limits.
+- **frame** (the LLM layer) reads the markets' rules, quotes the clauses that differ, and has a human confirm before anything is priced.
+- **polysim** is the next step: it takes a trade that was approved, fills it on paper with a delay against the books as they really were, holds it until the markets resolve and reports what we would actually have made or lost.
+
+That supplies the last two numbers of our evaluation: how many flagged arbitrages still paid out at resolution, and how much a naive price-only checker would have lost on the ones we blocked.
 
 ## Quick start
 
@@ -10,61 +20,84 @@ It only uses Polymarket's **public read-only endpoints** and never places real o
 pip install -e ".[dev]"
 pytest
 
-# Example strategies on a synthetic market (no network needed)
+# Example strategies on an invented market (no network needed)
 polysim backtest --strategy buy_and_hold --seed 1
 polysim backtest --strategy mean_reversion --param window=20 --param size=30
 polysim backtest --strategy market_maker --fill-mode through --fee-category crypto --latency 5
 
 # Real data (needs access to gamma-api.polymarket.com / clob.polymarket.com)
 polysim markets --limit 20
-polysim fetch <market-slug> --fidelity 60 --out events.jsonl --markets-out markets.json
 polysim record <market-slug> --interval 5 --duration 3600 --out books.jsonl
+polysim fetch <market-slug> --fidelity 60 --out events.jsonl --markets-out markets.json
 polysim backtest --strategy mean_reversion --events events.jsonl --markets markets.json
 ```
 
-## Architecture
+Every backtest starts with a label line, for example
+`PAPER RESULT on SYNTHETIC data (invented market): simulated fills, not real-world performance`.
 
-```
-            ┌──────────────── data/ ─────────────────┐
-            │ PolymarketClient (Gamma + CLOB REST)   │
-            │ record_books → JSONL book snapshots    │
-            │ fetch → JSONL price history + results  │
-            │ synthetic → reproducible binary markets│
-            └───────────────┬────────────────────────┘
-                            │ Event stream (BookEvent / PriceEvent / ResolutionEvent)
-                            ▼
-┌──────────── Backtester (engine.py) ──────────────┐
-│ advance time → SimExchange matches → Portfolio   │
-│          ↕ StrategyContext (buy/sell/cancel)     │
-│        Strategy.on_book / on_fill / on_resolution│
-└───────────────┬──────────────────────────────────┘
-                ▼
-     BacktestResult: equity curve, fills, orders, metrics
-```
+## How it works, step by step
 
-| Module | Responsibility |
-| --- | --- |
-| `polysim/models.py` | `Market`, `Token`, `OrderBook`, `Order`, `Fill` and enums |
-| `polysim/events.py` | Event types and JSON serialisation |
-| `polysim/exchange.py` | Simulated CLOB: takers walk the book level by level, maker fills, FOK/FAK/GTC, latency, cash/share reservation |
-| `polysim/portfolio.py` | Cash, positions, average cost, realised/unrealised PnL, settlement |
-| `polysim/fees.py` | Polymarket fee formula `feeRate × p × (1−p) × shares`, rate chosen by category (e.g. crypto 0.07: 100 shares @0.50 → $1.75). Only the crypto rate is entered; other categories raise an error asking for `taker_rate` |
-| `polysim/engine.py` | Backtest main loop; `BookSynthesizer` turns price-only data into order books |
-| `polysim/strategy.py` | `Strategy` base class + `StrategyContext` |
-| `polysim/metrics.py` | Return, max drawdown, Sharpe, volume, fees |
-| `polysim/data/` | API client, JSONL read/write, book recording, synthetic data |
-| `polysim/strategies/` | Examples: `buy_and_hold`, `mean_reversion`, `market_maker` |
+1. **Get the data (`data/polymarket.py`, `data/feeds.py`).**
+   It reads Polymarket's public Gamma API (markets, rules, results) and CLOB API (order books, price history). No account is needed.
+   `record` polls the order books every few seconds and saves each snapshot to a JSONL file. Polymarket keeps 1-minute price history for only about 7 days, so we record forward ourselves.
+   `fetch` downloads price history and, for closed markets, how each one resolved.
+   If a source has prices but no book, `BookSynthesizer` (`engine.py`) builds a stand-in book around the price. Results from it are less reliable than results from recorded books.
 
-## Simulation rules (current assumptions)
+2. **Or invent a market (`data/synthetic.py`).**
+   The Yes price follows a random walk with a slow drift towards a pre-drawn outcome. The same seed always gives the same market. These results are always labelled as synthetic.
 
-- **Prices and shares**: a price is a probability in (0, 1), validated against the market's `tick_size`. Winning shares settle at 1 USDC, losing shares at 0.
-- **Long only**: Polymarket has no naked shorting, so to bet against YES you buy NO. You cannot sell more than you hold.
-- **Taker orders**: walk the opposite side level by level, with an optional price limit. Liquidity we consume does not come back until the next snapshot arrives, so the same size cannot be filled twice. If cash runs short, the order fills as much as it can afford.
-- **Maker orders**: recorded books do not contain our orders, so a resting order fills at its own price, as a maker, when a later snapshot's opposite price reaches it (`touch`) or trades through it (`through`, more conservative). There is no queue-position model.
-- **Latency**: with `latency > 0`, an order arrives at `submit time + latency` and matches against the book in force at that moment.
-- **Reservation**: a resting GTC order reserves cash (buys) or shares (sells), released on cancel or fill.
-- **Settlement**: a `ResolutionEvent` cancels every open order in that market, pays positions according to `payouts` and marks the market closed.
-- **No look-ahead**: orders a strategy places while handling an event only match against books it has already seen.
+3. **Replay time (`engine.py`).**
+   Events play back in time order: a new book, a new price, or a market resolving.
+   A strategy only sees books it has already been shown, so it can never trade on the future.
+
+4. **Fill orders (`exchange.py`).**
+   An order that takes liquidity walks the book level by level, so a big order on a thin book gets a worse average price. It never fills at the mid.
+   Liquidity we took stays gone until the next snapshot, so the same size can't be filled twice.
+   With `--latency`, an order arrives that many seconds late and fills against the book at that later moment.
+   FOK, FAK and GTC are supported. Prices must be on the market's tick and orders above its minimum size.
+   A resting order fills at its own price when a later snapshot reaches it (`touch`) or trades through it (`through`, stricter).
+   If cash runs short, the order fills only what you can afford.
+
+5. **Charge fees (`fees.py`).**
+   Fee = rate × price × (1 − price) × shares, as in Polymarket's fee docs. For example, 100 crypto shares at 50¢ cost $1.75.
+   Only the crypto rate (0.07) is entered so far. Any other category stops with an error asking for the rate, rather than charging nothing.
+
+6. **Keep the account (`portfolio.py`).**
+   It tracks cash, positions, average cost and profit, both realised and on paper. Fees are taken from cash and totalled separately, so the average cost is the price paid before fees.
+   A resting order holds back its cash or shares until it fills or is cancelled.
+   No leverage and no naked shorts: to bet against Yes you buy No, and you can't sell what you don't own.
+   When a market resolves, its open orders are cancelled and shares pay what Gamma's `outcomePrices` says ($1 or $0).
+
+7. **Report (`metrics.py`, `cli.py`).**
+   Return, worst drawdown, Sharpe ratio, number of fills (and how many as maker), volume and fees paid.
+   `--json` saves the metrics, the equity curve and the final portfolio for later analysis.
+
+## Data sources and licences
+
+| Data | Where it comes from | Licence and how we use it |
+|---|---|---|
+| Market metadata, rules, results | Polymarket Gamma API, `gamma-api.polymarket.com` (public, no auth) | [Polymarket Terms of Service](https://polymarket.com/tos) (effective 11 Aug 2026). They grant a personal, limited, revocable licence and bar reselling, redistributing or commercially exploiting their data, including via the API, without written consent. Scraping with bots is banned. We call only documented API endpoints, for non-commercial hackathon research. |
+| Order books, price history | Polymarket CLOB API, `clob.polymarket.com` (public, no auth) | Same terms. Recorded snapshots stay on our own machines. `*.jsonl` is in `.gitignore`, so they are never published in this repo. |
+| Synthetic markets | Generated by `data/synthetic.py` | Our own code, no third-party data. Always labelled as synthetic. |
+| Test fixtures (`tests/polysim/fixtures/`) | Written by hand in the shape of API responses | Invented values (e.g. "Will it rain in London tomorrow?"), not copied from Polymarket. |
+
+Not used: **Kalshi** (its data terms bar AI/ML use, public display and storage) and any account, wallet or personal data.
+
+Polymarket's terms list the United Kingdom among the places where **trading** is not permitted. People there may only use the content features. Our team is in the UK, which is one more reason polysim is paper-only by construction.
+
+This is an engineering summary, not legal advice. The venue's own terms are the authority, and they change, so re-check them before relying on this.
+
+## Assumptions and known limits
+
+Where we had to guess, we chose the cautious option, unless a limit below says otherwise. These are the places where the simulator is **not yet** as strict as our spec, or is optimistic:
+
+- **Maker fills are optimistic.** There is no queue position: a resting order fills as soon as the price reaches it, even if others were ahead of us. Use `--fill-mode through` for a stricter test. A queue model needs trade prints, which we don't record yet.
+- **Open positions are marked at the mid**, not the best bid, so unrealised profit before resolution is flattering. Realised profit at resolution is not affected.
+- **Fees** are not rounded to 5 decimals as Polymarket does, and maker rebates are ignored (conservative).
+- **Consumed liquidity** returns with the next snapshot, not after a fixed time. With frequent snapshots this can let the same size refill too soon.
+- **Disputed results** are paid exactly as Gamma reports them. Anything not cleanly 0 or 1 should be checked by hand.
+- **No risk limits, kill switch, human approval step or audit log inside polysim yet.** In the combined project these come from arbcheck's guard and frame's hash-chained audit log; polysim should only ever receive trades that already passed both.
+- **No multi-leg basket with unwind yet.** Legs of an arbitrage are separate orders today, so leg risk (one leg fills, the next doesn't) is not measured.
 
 ## Writing a strategy
 
@@ -90,9 +123,12 @@ market, events = generate_binary_market(seed=42)
 print(Backtester(events, [market], Momentum(), initial_cash=1_000).run().summary())
 ```
 
-## Possible next steps
+## Next steps
 
-- WebSocket live books + trade prints (trade-based maker fills and a queue model)
-- YES/NO complement matching (buy YES @p ≈ sell NO @1−p) and mint/merge
-- Multi-market portfolios, position and risk limits
-- Parameter sweeps, result visualisation, a paper-trading mode (the same Strategy on live data)
+In priority order, matching the hackathon judging:
+
+1. **Basket execution with unwind**: fill an approved arbitrage leg by leg with a delay between legs, unwind if a leg fails, and report the leg-risk cost.
+2. **Use the shared pieces**: arbcheck's fee table (all categories) and read-only client, and frame's hash-chained audit log for every paper fill.
+3. **Record trades as well as books**, then add a queue model for maker orders.
+4. **Mark at best bid**, round fees like Polymarket, and flag disputed results for manual settlement.
+5. **Evaluation script**: tune on an earlier recorded period, test once on a later one, and report the funnel (naive flags → after fees → after depth → after rule check → realised at resolution) with uncertainty.
