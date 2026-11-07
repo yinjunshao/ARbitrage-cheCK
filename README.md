@@ -1,72 +1,72 @@
-# polysim — Polymarket 交易模拟 / 回测框架
+# polysim: Polymarket trade simulation / backtesting framework
 
-基于事件驱动的 Polymarket outcome token（YES/NO 份额）交易模拟器。当前为**基础架构**版本：数据接入、撮合、账户、策略接口、回测引擎、指标和 CLI 都已打通，后续可以在此之上迭代撮合模型和策略。
+An event-driven simulator for trading Polymarket outcome tokens (YES/NO shares). This is the **foundation** release: data ingestion, order matching, the account, the strategy interface, the backtest engine, metrics and the CLI all work end to end, so the matching model and strategies can be iterated on top of it.
 
-只使用 Polymarket 的**公开只读接口**，不会下真实订单。
+It only uses Polymarket's **public read-only endpoints** and never places real orders. All results are paper results.
 
-## 快速开始
+## Quick start
 
 ```bash
 pip install -e ".[dev]"
 pytest
 
-# 合成市场上跑示例策略（不需要网络）
+# Example strategies on a synthetic market (no network needed)
 polysim backtest --strategy buy_and_hold --seed 1
 polysim backtest --strategy mean_reversion --param window=20 --param size=30
 polysim backtest --strategy market_maker --fill-mode through --fee-category crypto --latency 5
 
-# 真实数据（需要能访问 gamma-api.polymarket.com / clob.polymarket.com）
+# Real data (needs access to gamma-api.polymarket.com / clob.polymarket.com)
 polysim markets --limit 20
 polysim fetch <market-slug> --fidelity 60 --out events.jsonl --markets-out markets.json
 polysim record <market-slug> --interval 5 --duration 3600 --out books.jsonl
 polysim backtest --strategy mean_reversion --events events.jsonl --markets markets.json
 ```
 
-## 架构
+## Architecture
 
 ```
-            ┌──────────────── data/ ────────────────┐
-            │ PolymarketClient (Gamma + CLOB REST)  │
-            │ record_books → JSONL 盘口快照          │
-            │ fetch  → JSONL 价格历史 + 结算         │
-            │ synthetic → 可复现的合成二元市场        │
-            └───────────────┬───────────────────────┘
-                            │ Event 流 (BookEvent / PriceEvent / ResolutionEvent)
+            ┌──────────────── data/ ─────────────────┐
+            │ PolymarketClient (Gamma + CLOB REST)   │
+            │ record_books → JSONL book snapshots    │
+            │ fetch → JSONL price history + results  │
+            │ synthetic → reproducible binary markets│
+            └───────────────┬────────────────────────┘
+                            │ Event stream (BookEvent / PriceEvent / ResolutionEvent)
                             ▼
-┌──────────── Backtester (engine.py) ─────────────┐
-│ 按时间推进 → SimExchange 撮合 → Portfolio 记账   │
+┌──────────── Backtester (engine.py) ──────────────┐
+│ advance time → SimExchange matches → Portfolio   │
 │          ↕ StrategyContext (buy/sell/cancel)     │
 │        Strategy.on_book / on_fill / on_resolution│
 └───────────────┬──────────────────────────────────┘
                 ▼
-     BacktestResult: 权益曲线、成交、订单、指标
+     BacktestResult: equity curve, fills, orders, metrics
 ```
 
-| 模块 | 职责 |
+| Module | Responsibility |
 | --- | --- |
-| `polysim/models.py` | `Market`、`Token`、`OrderBook`、`Order`、`Fill` 及枚举 |
-| `polysim/events.py` | 事件类型与 JSON 序列化 |
-| `polysim/exchange.py` | 模拟 CLOB：吃单逐档成交、挂单 maker 成交、FOK/FAK/GTC、延迟、资金/持仓冻结 |
-| `polysim/portfolio.py` | 现金、持仓、均价、已实现/未实现 PnL、结算 |
-| `polysim/fees.py` | Polymarket 费率公式 `feeRate × p × (1−p) × shares`，费率按类别取（如 crypto 0.07：100 份 @0.50 → $1.75） |
-| `polysim/engine.py` | 回测主循环；`BookSynthesizer` 把纯价格数据转换成盘口 |
-| `polysim/strategy.py` | `Strategy` 基类 + `StrategyContext` |
-| `polysim/metrics.py` | 收益、最大回撤、Sharpe、成交量、费用 |
-| `polysim/data/` | API 客户端、JSONL 读写、盘口录制、合成数据 |
-| `polysim/strategies/` | 示例：`buy_and_hold`、`mean_reversion`、`market_maker` |
+| `polysim/models.py` | `Market`, `Token`, `OrderBook`, `Order`, `Fill` and enums |
+| `polysim/events.py` | Event types and JSON serialisation |
+| `polysim/exchange.py` | Simulated CLOB: takers walk the book level by level, maker fills, FOK/FAK/GTC, latency, cash/share reservation |
+| `polysim/portfolio.py` | Cash, positions, average cost, realised/unrealised PnL, settlement |
+| `polysim/fees.py` | Polymarket fee formula `feeRate × p × (1−p) × shares`, rate chosen by category (e.g. crypto 0.07: 100 shares @0.50 → $1.75). Only the crypto rate is entered; other categories raise an error asking for `taker_rate` |
+| `polysim/engine.py` | Backtest main loop; `BookSynthesizer` turns price-only data into order books |
+| `polysim/strategy.py` | `Strategy` base class + `StrategyContext` |
+| `polysim/metrics.py` | Return, max drawdown, Sharpe, volume, fees |
+| `polysim/data/` | API client, JSONL read/write, book recording, synthetic data |
+| `polysim/strategies/` | Examples: `buy_and_hold`, `mean_reversion`, `market_maker` |
 
-## 模拟规则（当前假设）
+## Simulation rules (current assumptions)
 
-- **价格/份额**：价格是 (0,1) 内的概率，按市场 `tick_size` 校验；赢的份额结算为 1 USDC，输的为 0。
-- **只做多**：Polymarket 不能裸卖空，想做空 YES 就买 NO。卖出数量不能超过可用持仓。
-- **吃单**：沿对手盘逐档成交，可设价格上限；被吃掉的流动性在下一张快照到来前不会恢复，避免重复吃同一份量。现金不足时按可负担量部分成交。
-- **挂单**：录制的盘口里没有我们的订单，所以当后续快照中对手价到达（`touch`）或穿过（`through`，更保守）我们的价格时，按我们的挂单价以 maker 成交。没有排队位置模型。
-- **延迟**：`latency > 0` 时订单在 `提交时间 + latency` 到达，并与那一刻生效的盘口撮合。
-- **冻结**：GTC 挂单会冻结现金（买）或份额（卖），撤单/成交后释放。
-- **结算**：`ResolutionEvent` 撤销该市场全部挂单，按 `payouts` 兑付持仓，并把市场标记为关闭。
-- **防前视**：策略在处理事件时下的单只会与它已看到的盘口撮合。
+- **Prices and shares**: a price is a probability in (0, 1), validated against the market's `tick_size`. Winning shares settle at 1 USDC, losing shares at 0.
+- **Long only**: Polymarket has no naked shorting, so to bet against YES you buy NO. You cannot sell more than you hold.
+- **Taker orders**: walk the opposite side level by level, with an optional price limit. Liquidity we consume does not come back until the next snapshot arrives, so the same size cannot be filled twice. If cash runs short, the order fills as much as it can afford.
+- **Maker orders**: recorded books do not contain our orders, so a resting order fills at its own price, as a maker, when a later snapshot's opposite price reaches it (`touch`) or trades through it (`through`, more conservative). There is no queue-position model.
+- **Latency**: with `latency > 0`, an order arrives at `submit time + latency` and matches against the book in force at that moment.
+- **Reservation**: a resting GTC order reserves cash (buys) or shares (sells), released on cancel or fill.
+- **Settlement**: a `ResolutionEvent` cancels every open order in that market, pays positions according to `payouts` and marks the market closed.
+- **No look-ahead**: orders a strategy places while handling an event only match against books it has already seen.
 
-## 写一个策略
+## Writing a strategy
 
 ```python
 from polysim import Backtester, Strategy, TimeInForce
@@ -84,15 +84,15 @@ class Momentum(Strategy):
         if book.mid - prev > 0.02 and held == 0:
             ctx.buy(book.token_id, 50, price=book.best_ask, tif=TimeInForce.FAK)
         elif book.mid < prev and held > 0:
-            ctx.sell(book.token_id, held)  # 不给价格 = 市价 (FAK)
+            ctx.sell(book.token_id, held)  # no price = market order (FAK)
 
 market, events = generate_binary_market(seed=42)
 print(Backtester(events, [market], Momentum(), initial_cash=1_000).run().summary())
 ```
 
-## 后续可以做的
+## Possible next steps
 
-- WebSocket 实时盘口 + 逐笔成交（基于成交的挂单成交与排队模型）
-- YES/NO 互补撮合（买 YES @p ≈ 卖 NO @1−p）与 mint/merge
-- 多市场组合、仓位/风险限额
-- 参数扫描、结果可视化、paper trading 模式（同一 Strategy 接实时数据）
+- WebSocket live books + trade prints (trade-based maker fills and a queue model)
+- YES/NO complement matching (buy YES @p ≈ sell NO @1−p) and mint/merge
+- Multi-market portfolios, position and risk limits
+- Parameter sweeps, result visualisation, a paper-trading mode (the same Strategy on live data)
