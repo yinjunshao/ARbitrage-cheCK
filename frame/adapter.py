@@ -98,6 +98,7 @@ class ArbcheckAdapter:
         self._event_tags: dict[str, list[str]] = {}
         self.max_events, self.max_per_event = 200, 40
         self.last_notes: list[str] = []
+        self.progress = lambda text: None   # the pipeline sets this to report listing progress
         if demo:
             universe = demo_data.demo_markets()
             self.registry = venues.Registry([demo_data.DemoVenue(n, universe) for n in ("Polymarket", "Kalshi", "Manifold")])
@@ -206,7 +207,8 @@ class ArbcheckAdapter:
             if self.kalshi_member:
                 out += self._kalshi_events()
             else:
-                self.last_notes.append("Kalshi is off (its Developer Agreement): start with --kalshi-member if you are a member.")
+                self.last_notes.append("Kalshi is off (its Developer Agreement). If you are a Kalshi member, set "
+                                       "FRAME_KALSHI_MEMBER=1 in .env and restart.")
         return out
 
     def _polymarket_events(self) -> list[Market]:
@@ -231,6 +233,7 @@ class ArbcheckAdapter:
                 for cm in polymarket.stubs_from_event(ev)[: self.max_per_event]:
                     out.append(self.to_frame(cm, tags))
             offset += len(events)
+            self.progress(f"Polymarket: {offset} of {self.max_events} events read, {len(out):,} markets so far…")
         return out
 
     def _kalshi_events(self) -> list[Market]:
@@ -253,6 +256,7 @@ class ArbcheckAdapter:
                     if cm:
                         out.append(self.to_frame(cm, tags))
                 seen += 1
+            self.progress(f"Kalshi: {seen} of {self.max_events} events read, {len(out):,} markets so far…")
             cursor = data.get("cursor") or ""
             if not cursor:
                 break

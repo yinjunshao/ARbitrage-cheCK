@@ -104,6 +104,33 @@ def test_audit_tail_cache_keeps_chain_valid(tmp_path):
     assert again.verify() == (True, None) and len(again.records()) == 51
 
 
+def test_audit_survives_a_corrupt_line_and_a_second_writer(tmp_path):
+    from frame.audit import AuditLog
+    p = tmp_path / "a.jsonl"
+    one, two = AuditLog(p), AuditLog(p)          # two processes on one file (the app and the monitor)
+    for i in range(10):
+        (one if i % 2 else two).append("x", {"i": i})
+    assert AuditLog(p).verify() == (True, None) and len(AuditLog(p).records()) == 10
+    with p.open("ab") as f:
+        f.write(b':"half a line from an old crash"}\n')
+    assert len(AuditLog(p).records()) == 10            # skipped, not fatal
+    assert AuditLog(p).verify() == (False, 10)          # but reported
+    one.append("x", {"i": 10})                         # the chain carries on from the last good record
+    assert AuditLog(p).records()[-1]["seq"] == 10
+
+
+def test_audit_parallel_processes(tmp_path):
+    import subprocess, sys
+    from frame.audit import AuditLog
+    p = tmp_path / "a.jsonl"
+    code = ("import sys; sys.path.insert(0, sys.argv[2]); from frame.audit import AuditLog; "
+            "l = AuditLog(sys.argv[1]); [l.append('x', {'pad': 'y' * 3000, 'i': i}) for i in range(150)]")
+    root = str(__import__("pathlib").Path(__file__).resolve().parents[2])
+    procs = [subprocess.Popen([sys.executable, "-c", code, str(p), root]) for _ in range(3)]
+    assert all(pr.wait(60) == 0 for pr in procs)
+    assert AuditLog(p).verify() == (True, None) and len(AuditLog(p).records()) == 450
+
+
 def test_candidate_refusal_deferred_logged_once_per_pair(tmp_path):
     from frame.suggestions import SuggestionLog
     a, b = mk("1", "Fed cut?", "economics"), mk("2", "Fed cut 50bps?", "economics", venue="kalshi")

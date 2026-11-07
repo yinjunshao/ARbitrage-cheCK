@@ -17,3 +17,4 @@ dist/
 *.jsonl
 !tests/polysim/fixtures/*.jsonl
 data/frame/monitor_run.txt
+*.jsonl.lock

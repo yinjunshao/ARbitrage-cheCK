@@ -28,6 +28,7 @@ class Config:
     narrate_model: str = os.getenv("FRAME_NARRATE_MODEL", _DEFAULT_MODEL)
     temperature: float = float(os.getenv("FRAME_TEMPERATURE", "0.1"))
     max_output_tokens: int = int(os.getenv("FRAME_MAX_TOKENS", "4096"))
+    llm_timeout_s: float = float(os.getenv("FRAME_LLM_TIMEOUT_S", "60"))   # per Gemini request
 
     # "arbcheck" = the real numeric core in arbcheck-project/ ; "fake" = fixed placeholders (unit tests).
     core: str = os.getenv("FRAME_CORE", "arbcheck")

@@ -19,6 +19,7 @@ from frame.schemas import Market  # noqa: E402
 RELATIONS = ["same_event", "a_implies_b", "b_implies_a", "mutually_exclusive", "exhaustive_set"]
 USER = "analyst"
 P: Pipeline | None = None
+SCANNING = False   # one scan at a time, shared by every open tab
 MODE = "live"
 VERDICT_STYLE = {"worth_a_look": "bg-green-100 text-green-900", "look_closely": "bg-amber-100 text-amber-900",
                  "blocked": "bg-red-100 text-red-900", "nothing_to_do": "bg-slate-100 text-slate-800"}
@@ -40,7 +41,7 @@ def banner():
             ui.label("FAKE CORE: placeholder numbers.").classes("text-red-700 font-bold")
         if getattr(P.adapter, "demo", False):
             ui.label("TEST MARKETS: invented.").classes("text-red-700 font-bold")
-        ui.label(f"LIVE data · Polymarket on · Kalshi {'ON' if P.cfg.kalshi_member else 'off (run.bat kalshi)'} · "
+        ui.label(f"LIVE data · Polymarket on · Kalshi {'ON' if P.cfg.kalshi_member else 'off (set FRAME_KALSHI_MEMBER=1 in .env)'} · "
                  f"LLM {P.cfg.judge_model} · core {P.adapter.name}")
 
 
@@ -69,15 +70,34 @@ def check_page():
             status.set_text(f"Last scan {s.scan}: {s.markets} markets, {s.candidates} candidates, {s.rule_refused} refused "
                             f"by rules, {s.judged} judged, {s.surfaced} for review, {s.deferred} deferred.")
 
+        progress = ui.label("").classes("text-sm text-blue-700")
+        spinner = ui.spinner(size="md")
+        spinner.visible = False
+        # Live progress: the scan runs in a worker thread; this timer shows where it is up to.
+        ui.timer(0.5, lambda: progress.set_text(P.status if SCANNING else progress.text))
+
         async def scan():
-            status.set_text("Scanning live markets… (pulling events, then Gemini; can take a few minutes)")
+            global SCANNING
+            if SCANNING:
+                ui.notify("A scan is already running.", type="warning")
+                return
+            SCANNING, spinner.visible = True, True
+            btn.disable()
+            status.set_text("Scanning live markets (usually 1–3 minutes).")
             from nicegui import run
-            s = await run.io_bound(P.scan, ["polymarket", "kalshi"])
+            try:
+                s = await run.io_bound(P.scan, ["polymarket", "kalshi"])
+            except Exception as e:
+                ui.notify(f"Scan failed: {type(e).__name__}: {e}", type="negative", multi_line=True)
+                return
+            finally:
+                SCANNING, spinner.visible = False, False
+                btn.enable()
             for n in s.notes:
                 ui.notify(n, type="info", multi_line=True)
             ui.navigate.to("/candidates")
 
-        ui.button("Scan venues for related markets", on_click=scan)
+        btn = ui.button("Scan venues for related markets", on_click=scan)
         ui.separator()
         ui.label("Check a pair: paste two links or describe two events").classes("text-xl")
         l1, l2 = ui.input("Event A (link or words)").classes("w-full"), ui.input("Event B (link or words)").classes("w-full")

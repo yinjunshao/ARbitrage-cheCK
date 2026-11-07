@@ -58,7 +58,9 @@ class GeminiClient(_Audited):
         from google import genai  # imported lazily so tests don't need the SDK
 
         self._genai = genai
-        self.client = genai.Client(api_key=cfg.gemini_api_key)
+        # A hard timeout per HTTP request: without it a stalled Gemini call hangs the whole scan forever.
+        self.client = genai.Client(api_key=cfg.gemini_api_key,
+                                   http_options=genai.types.HttpOptions(timeout=int(cfg.llm_timeout_s * 1000)))
         self.cfg = cfg
         self.audit = audit
 

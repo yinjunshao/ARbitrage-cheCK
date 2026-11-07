@@ -2,9 +2,10 @@
 REM False-Arb Checker on LIVE data: LLM frame (Gemini) + numeric core (arbcheck) + polysim.
 REM
 REM   run.bat               set up, run all tests, start the app on live Polymarket data  (http://127.0.0.1:8080)
-REM   run.bat kalshi        same, plus Kalshi (ONLY if you are a Kalshi member, on your own computer)
 REM   run.bat monitor       scan live markets every 5 minutes; log every suggestion; re-price confirmed pairs
-REM   run.bat monitor-kalshi   the monitor, plus Kalshi (members only)
+REM   run.bat kalshi / monitor-kalshi   one-off: same with Kalshi on, whatever .env says
+REM
+REM Kalshi on/off lives in .env: FRAME_KALSHI_MEMBER=1 (ONLY if you are a Kalshi member, on your own computer).
 REM   run.bat test          set up and run every test (core, polysim, frame), then stop
 REM   run.bat core          the core's own app, no LLM frame (http://127.0.0.1:8765)
 REM
@@ -67,8 +68,12 @@ if "%HASKEY%"=="0" (
 
 REM ---------- 4. Run ----------
 set "KFLAG="
+set "KSTATE=Kalshi off (FRAME_KALSHI_MEMBER=1 in .env to turn it on)"
+findstr /r /c:"^FRAME_KALSHI_MEMBER=1" ".env" >nul 2>nul && set "KSTATE=Kalshi ON (from .env)"
 if /i "%MODE%"=="kalshi" set "KFLAG=--kalshi-member"
 if /i "%MODE%"=="monitor-kalshi" set "KFLAG=--kalshi-member"
+if defined KFLAG set "KSTATE=Kalshi ON (this run)"
+echo [kalshi] %KSTATE%
 if /i "%MODE:~0,7%"=="monitor" (
     echo.
     echo [monitor] live markets every 5 minutes %KFLAG%   Ctrl+C to stop. Log: data\frame\suggestions.jsonl

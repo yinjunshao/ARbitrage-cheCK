@@ -2,7 +2,7 @@
 
     python -m frame.monitor                    # every FRAME_MONITOR_EVERY_S seconds (default 300)
     python -m frame.monitor --once             # one cycle, then exit
-    python -m frame.monitor --kalshi-member    # include Kalshi (members only, own computer)
+    python -m frame.monitor --kalshi-member    # include Kalshi for this run (or FRAME_KALSHI_MEMBER=1 in .env)
 
 Each cycle:
   1. scan: pull open events through arbcheck's read-only client, generate candidates, apply the
@@ -55,6 +55,7 @@ def main(argv=None) -> None:
         cfg = replace(cfg, kalshi_member=True)
     every = args.every or cfg.monitor_every_s
     p = build(cfg=cfg)
+    p.on_status = lambda t: print(f"   … {t}", flush=True)
     print(f"Monitoring live markets (paper only). Kalshi {'ON' if cfg.kalshi_member else 'off'}. "
           f"Judge model {cfg.judge_model}. Log: {cfg.suggestions_path}", flush=True)
     while True:

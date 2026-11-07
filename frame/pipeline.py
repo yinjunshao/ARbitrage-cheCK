@@ -89,6 +89,8 @@ class Pipeline:
         self.judge = Judge(llm, cfg.judge_model, cfg.cache_dir, self.fewshot, cfg.judge_concurrency)
         self.cases: dict[str, Case] = {}
         self.last_scan: ScanSummary | None = None
+        self.status = ""            # what a running scan is doing right now
+        self.on_status = None       # optional callback(text)
 
     # ------------------------------------------------------------ state
     def _move(self, case: Case, to: State, **info) -> None:
@@ -105,20 +107,34 @@ class Pipeline:
     # ------------------------------------------------------------ discover + judge
     def scan(self, venues: list[str] = ("polymarket", "kalshi")) -> ScanSummary:
         sid = time.strftime("%Y%m%dT%H%M%S")
+        t0 = time.time()
+        self._say("Pulling open markets from the venues…")
+        if hasattr(self.adapter, "progress"):
+            self.adapter.progress = self._say
         markets = discover(self.adapter, list(venues), self.cfg.excluded_categories, self.cfg.kalshi_member)
         markets = [m for m in markets if m.venue != "manifold"]  # play money: signal only, never a leg
         s = ScanSummary(scan=sid, markets=len(markets), notes=list(getattr(self.adapter, "last_notes", [])))
         self.audit.append("discover", {"scan": sid, "venues": list(venues), "n_markets": len(markets),
                                        "core": self.adapter.name, "notes": s.notes})
         self.judge_candidates(markets, s)
+        self._say(f"Pricing venue-declared outcome sets with the core…")
         self.price_venue_sets(markets, s)
         self.last_scan = s
         self.audit.append("scan_done", s.__dict__)
+        self._say(f"Done in {time.time() - t0:.0f}s: {s.markets} markets, {s.surfaced} suggestions for review.")
         return s
+
+    def _say(self, text: str) -> None:
+        """Where a running scan is up to (shown live in the app and printed by the monitor)."""
+        self.status = text
+        cb = getattr(self, "on_status", None)
+        if cb:
+            cb(text)
 
     def judge_candidates(self, markets: list[Market], s: ScanSummary | None = None) -> list[Case]:
         s = s or ScanSummary(scan=time.strftime("%Y%m%dT%H%M%S"), markets=len(markets))
         link = getattr(self.adapter, "cheap_link", None)
+        self._say(f"Finding candidate pairs among {len(markets):,} markets and applying the suggestion rules…")
         raw = cand.generate(markets, self.embedder, self.cfg.top_k, self.cfg.date_window_days,
                             self.cfg.min_similarity, link)
         allowed = []
@@ -138,10 +154,12 @@ class Pipeline:
         allowed.sort(key=lambda t: (t[3] != "within_event", -t[2]))
         todo = allowed[: self.cfg.max_judge_per_scan]
         s.deferred = len(allowed) - len(todo)  # their `candidate` row stands until a later scan judges them
+        self._say(f"Asking Gemini about {len(todo)} of {len(allowed):,} candidate pairs ({s.rule_refused:,} refused by rules)…")
         judged = self.judge.judge_many([(a, b) for a, b, *_ in todo])
         # Rule comparisons for the surfaced ones, in parallel (the slow part of a scan).
         from concurrent.futures import ThreadPoolExecutor
         need = [jp for jp in judged if self._surface(jp) and jp.pair_id not in self.cases]
+        self._say(f"Gemini is comparing the resolution rules of {len(need)} related pairs…")
         with ThreadPoolExecutor(max_workers=self.cfg.judge_concurrency) as ex:
             diffs = dict(zip([jp.pair_id for jp in need], ex.map(
                 lambda jp: compare_rules(self.llm, self.cfg.rules_model, jp.a, jp.b, self.adapter, jp.verdict.relation),
