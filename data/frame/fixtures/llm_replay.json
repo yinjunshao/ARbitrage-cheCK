@@ -2,7 +2,7 @@
   "judge_pair:87ab0be7ddc469df": {
     "relation": "a_implies_b",
     "confidence": "high",
-    "reasoning": "Both markets track the exact same event using identical criteria and resolution sources, differing only in their deadline. Since December 31, 2026 occurs before March 31, 2027, an announcement made by the deadline in Market A automatically satisfies the condition for Market B.",
+    "reasoning": "Market A and Market B have identical resolution criteria and sources, differing only in their deadlines. Because December 31, 2026 is before March 31, 2027, an announcement that satisfies Market A's deadline will necessarily also satisfy Market B's deadline.",
     "evidence_a": [
       "Resolves Yes if Orion Tech publicly announces a stock split by December 31, 2026, 11:59 PM ET. The announcement must appear in a press release or SEC filing. Resolution source: Orion Tech investor relations page."
     ],
@@ -13,7 +13,7 @@
   "judge_pair:5efef8b68b730e42": {
     "relation": "a_implies_b",
     "confidence": "high",
-    "reasoning": "Both markets track the identical event (Kestrel Airlines announcing a new route to Lisbon) using the same resolution source. Market A has a deadline of December 31, 2026, which is strictly earlier than Market B's deadline of March 31, 2027, so if A resolves Yes, B must also resolve Yes.",
+    "reasoning": "Both markets track the exact same event using the same resolution source, with Market A having an earlier deadline than Market B. If Kestrel Airlines announces a new route to Lisbon by December 31, 2026, it will necessarily have announced it by March 31, 2027.",
     "evidence_a": [
       "Resolves Yes if Kestrel Airlines publicly announces a new route to Lisbon by December 31, 2026, 11:59 PM ET. Resolution source: Kestrel Airlines press releases."
     ],
@@ -24,7 +24,7 @@
   "judge_pair:78bcad692b4ee2e0": {
     "relation": "a_implies_b",
     "confidence": "high",
-    "reasoning": "Both markets track FDA approval of MRL-204 using the same resolution source. Because December 31, 2026 occurs before March 31, 2027, an approval by Market A's deadline guarantees an approval by Market B's deadline.",
+    "reasoning": "Both markets track the exact same event (FDA approval of MRL-204) using the same resolution source. Market A has a deadline of December 31, 2026, which is earlier than Market B's deadline of March 31, 2027, so if A resolves Yes, B must also resolve Yes.",
     "evidence_a": [
       "Resolves Yes if the FDA approves MRL-204 by December 31, 2026, 11:59 PM ET. Resolution source: FDA approvals database."
     ],
@@ -35,14 +35,25 @@
   "judge_pair:8cb8adfe9fa0ad58": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Although both markets concern a recall of the Helix H3 model with nested deadlines, they use entirely different resolution criteria and sources. Market A requires publication by NHTSA in the NHTSA recall database, whereas Market B requires a public announcement by Helix Motors via its press releases, meaning either could occur without the other.",
+    "reasoning": "Although both markets concern a recall of the Helix H3 model with nested deadlines, they rely on entirely different resolution criteria and sources. Market A requires publication by NHTSA in the NHTSA recall database, whereas Market B requires a public announcement by Helix Motors via its own press releases, meaning neither outcome strictly guarantees the other.",
     "evidence_a": [
-      "published by NHTSA by December 31, 2026, 11:59 PM ET",
-      "Resolution source: NHTSA recall database."
+      "published by NHTSA by December 31, 2026, 11:59 PM ET. Resolution source: NHTSA recall database."
     ],
     "evidence_b": [
-      "Helix Motors itself publicly announces a recall of the Helix H3 model by March 31, 2027, 11:59 PM UTC",
-      "Resolution source: Helix Motors press releases."
+      "Helix Motors itself publicly announces a recall of the Helix H3 model by March 31, 2027, 11:59 PM UTC. Resolution source: Helix Motors press releases."
+    ]
+  },
+  "judge_pair:3e86b5fbdade03af": {
+    "relation": "mutually_exclusive",
+    "confidence": "high",
+    "reasoning": "Market A resolves Yes if Harbor FC wins the Northvale Cup final, while Market B resolves Yes if Redmoor United wins the same final. Because the rules state that exactly one team wins, both teams cannot win, making the outcomes mutually exclusive.",
+    "evidence_a": [
+      "Resolves Yes if Harbor FC wins the Northvale Cup final on or before December 20, 2026.",
+      "Exactly one team wins."
+    ],
+    "evidence_b": [
+      "Resolves Yes if Redmoor United wins the Northvale Cup final on or before December 20, 2026.",
+      "Exactly one team wins."
     ]
   },
   "judge_pair:588c08887317c130": {
@@ -56,6 +67,19 @@
       "Resolves Yes if Polar Grid Energy publicly announces a merger agreement by March 31, 2027, 11:59 PM UTC. Resolution source: Polar Grid Energy press releases."
     ]
   },
+  "judge_pair:7fe483843b6747e2": {
+    "relation": "mutually_exclusive",
+    "confidence": "high",
+    "reasoning": "Market A resolves Yes if Harbor FC wins the Northvale Cup final, while Market B resolves Yes if Stonebridge wins the same cup final. Since the rules state that \"Exactly one team wins\" and it is unclear if there are other teams competing, both cannot resolve Yes simultaneously.",
+    "evidence_a": [
+      "Resolves Yes if Harbor FC wins the Northvale Cup final on or before December 20, 2026.",
+      "Exactly one team wins."
+    ],
+    "evidence_b": [
+      "Resolves Yes if Stonebridge wins the Northvale Cup final on or before December 20, 2026.",
+      "Exactly one team wins."
+    ]
+  },
   "judge_pair:5a45914f2ff8344f": {
     "relation": "b_implies_a",
     "confidence": "high",
@@ -67,25 +91,12 @@
       "Resolves Yes if the Vega 500 Index official closing level on December 31, 2026 is above 5,500. Resolution source: Vega Exchange published closing level."
     ]
   },
-  "judge_pair:3e86b5fbdade03af": {
+  "judge_pair:6f993252fa54ed38": {
     "relation": "mutually_exclusive",
     "confidence": "high",
-    "reasoning": "Market A resolves Yes if Harbor FC wins the Northvale Cup final, and Market B resolves Yes if Redmoor United wins the same final. Because the rules explicitly state that exactly one team wins, both contracts cannot resolve Yes. However, another team could win, or the final might not occur by the deadline, so they do not form an exhaustive set.",
+    "reasoning": "Market A resolves Yes if Redmoor United wins the Northvale Cup final, while Market B resolves Yes if Stonebridge wins the same final. The rules explicitly state that exactly one team wins, meaning both cannot resolve Yes, though a third team could potentially win instead of either.",
     "evidence_a": [
-      "Resolves Yes if Harbor FC wins the Northvale Cup final on or before December 20, 2026.",
-      "Exactly one team wins."
-    ],
-    "evidence_b": [
       "Resolves Yes if Redmoor United wins the Northvale Cup final on or before December 20, 2026.",
-      "Exactly one team wins."
-    ]
-  },
-  "judge_pair:7fe483843b6747e2": {
-    "relation": "mutually_exclusive",
-    "confidence": "high",
-    "reasoning": "Market A resolves Yes if Harbor FC wins the Northvale Cup final, while Market B resolves Yes if Stonebridge wins the same final. The rules for both markets explicitly state that exactly one team wins, meaning both cannot resolve Yes.",
-    "evidence_a": [
-      "Resolves Yes if Harbor FC wins the Northvale Cup final on or before December 20, 2026.",
       "Exactly one team wins."
     ],
     "evidence_b": [
@@ -96,7 +107,7 @@
   "judge_pair:c04e9557ef4da215": {
     "relation": "mutually_exclusive",
     "confidence": "high",
-    "reasoning": "Market A resolves Yes if Harbor FC wins the Northvale Cup final, while Market B resolves Yes if Dunmere Town wins the Northvale Cup final. Since the rules state that exactly one team wins, both cannot resolve Yes, though a third team could win.",
+    "reasoning": "Market A resolves Yes if Harbor FC wins the Northvale Cup final, while Market B resolves Yes if Dunmere Town wins it. Because the rules state that exactly one team wins, both cannot resolve Yes, though a third team could win.",
     "evidence_a": [
       "Resolves Yes if Harbor FC wins the Northvale Cup final on or before December 20, 2026.",
       "Exactly one team wins."
@@ -109,33 +120,20 @@
   "judge_pair:59c308f9f19f36c9": {
     "relation": "mutually_exclusive",
     "confidence": "high",
-    "reasoning": "Market A resolves Yes if Redmoor United wins the Northvale Cup final, and Market B resolves Yes if Dunmere Town wins the Northvale Cup final. Since the rules state that \"Exactly one team wins\", both markets cannot resolve Yes. However, another team could win or the final could happen after the deadline, so they are not an exhaustive set.",
+    "reasoning": "Market A resolves Yes if Redmoor United wins the Northvale Cup final, while Market B resolves Yes if Dunmere Town wins the same final. Because the rules explicitly state that 'Exactly one team wins', both contracts cannot resolve Yes simultaneously. However, it is not an exhaustive set because another team might win or the final might not occur by the deadline.",
     "evidence_a": [
       "Resolves Yes if Redmoor United wins the Northvale Cup final on or before December 20, 2026.",
       "Exactly one team wins."
     ],
     "evidence_b": [
       "Resolves Yes if Dunmere Town wins the Northvale Cup final on or before December 20, 2026.",
-      "Exactly one team wins."
-    ]
-  },
-  "judge_pair:6f993252fa54ed38": {
-    "relation": "mutually_exclusive",
-    "confidence": "high",
-    "reasoning": "Market A resolves Yes if Redmoor United wins the Northvale Cup final, while Market B resolves Yes if Stonebridge wins the same final. The rules explicitly state that 'Exactly one team wins', meaning both cannot resolve Yes, though a third team could win or the final might not occur by the deadline.",
-    "evidence_a": [
-      "Resolves Yes if Redmoor United wins the Northvale Cup final on or before December 20, 2026.",
-      "Exactly one team wins."
-    ],
-    "evidence_b": [
-      "Resolves Yes if Stonebridge wins the Northvale Cup final on or before December 20, 2026.",
       "Exactly one team wins."
     ]
   },
   "judge_pair:680fde9d838f8e5a": {
     "relation": "mutually_exclusive",
     "confidence": "high",
-    "reasoning": "Market A resolves Yes if Stonebridge wins the Northvale Cup final, and Market B resolves Yes if Dunmere Town wins the Northvale Cup final. Because the rules state that \"Exactly one team wins\", both markets cannot resolve Yes. However, they do not form an exhaustive set because another team might win or the final might not occur by December 20, 2026.",
+    "reasoning": "Market A resolves Yes if Stonebridge wins the Northvale Cup final, while Market B resolves Yes if Dunmere Town wins it. Both rules specify that exactly one team wins, meaning both contracts cannot resolve Yes simultaneously. However, they do not form an exhaustive set because a third team could win or the final could happen after the deadline.",
     "evidence_a": [
       "Resolves Yes if Stonebridge wins the Northvale Cup final on or before December 20, 2026.",
       "Exactly one team wins."
@@ -145,67 +143,46 @@
       "Exactly one team wins."
     ]
   },
-  "judge_pair:96e522bd6af6ad27": {
-    "relation": "same_event",
-    "confidence": "high",
-    "reasoning": "Both markets resolve Yes under the exact same condition: Zephyr Bank announcing a cut to its benchmark interest rate by December 31, 2026, 11:59 PM UTC. They also rely on the identical resolution source.",
-    "evidence_a": [
-      "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC. Resolution source: Zephyr Bank official statement."
-    ],
-    "evidence_b": [
-      "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC. Resolution source: Zephyr Bank official statement."
-    ]
-  },
-  "judge_pair:bcbe1e6c11045586": {
-    "relation": "unrelated",
-    "confidence": "high",
-    "reasoning": "Market A tracks whether Polar Grid Energy announces a merger, while Market B tracks whether Atlas Corp's CEO resigns. These are completely separate corporate events involving different companies with no logical connection.",
-    "evidence_a": [
-      "Resolves Yes if Polar Grid Energy publicly announces a merger agreement by March 31, 2027, 11:59 PM UTC."
-    ],
-    "evidence_b": [
-      "Resolves Yes only if the Atlas Corp CEO voluntarily resigns by March 31, 2027, 11:59 PM UTC."
-    ]
-  },
   "judge_pair:58a4446df613d16c": {
     "relation": "b_implies_a",
     "confidence": "medium",
-    "reasoning": "Market B resolves Yes only if the CEO voluntarily resigns by March 31, 2027, whereas Market A resolves Yes if the CEO leaves the role for any reason by the same deadline. Therefore, if B resolves Yes, A must also resolve Yes. Confidence is medium because the two markets rely on different resolution sources (SEC filings vs. press releases).",
+    "reasoning": "Market B requires the CEO to voluntarily resign by the deadline, whereas Market A resolves Yes if the CEO leaves for any reason, including being fired, by the exact same deadline. Therefore, if the CEO voluntarily resigns (Market B is Yes), they have left the role for any reason (Market A is Yes). Confidence is medium due to the slightly different resolution sources (SEC filings vs. press release).",
     "evidence_a": [
       "leaves the role for any reason, including being fired, by March 31, 2027, 11:59 PM UTC",
       "Resolution source: Atlas Corp SEC filings."
     ],
     "evidence_b": [
       "voluntarily resigns by March 31, 2027, 11:59 PM UTC",
+      "A termination or firing does not count.",
       "Resolution source: Atlas Corp press release."
     ]
   },
-  "judge_pair:702b512f22bf64dc": {
+  "judge_pair:bcbe1e6c11045586": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks whether the FDA will approve a drug (MRL-204), while Market B tracks whether Zephyr Bank will cut interest rates. These two events are in completely different domains and have no logical link.",
+    "reasoning": "Market A tracks whether Polar Grid Energy announces a merger, while Market B tracks whether the CEO of Atlas Corp voluntarily resigns. These are completely separate corporate events for different companies with no logical connection.",
     "evidence_a": [
-      "Resolves Yes if the FDA approves MRL-204 by December 31, 2026, 11:59 PM ET."
+      "Polar Grid Energy publicly announces a merger agreement by March 31, 2027, 11:59 PM UTC"
     ],
     "evidence_b": [
-      "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC."
+      "the Atlas Corp CEO voluntarily resigns by March 31, 2027, 11:59 PM UTC"
     ]
   },
-  "judge_pair:02ff793ffe987c26": {
-    "relation": "unrelated",
+  "judge_pair:96e522bd6af6ad27": {
+    "relation": "same_event",
     "confidence": "high",
-    "reasoning": "Market A tracks the regulatory approval of a drug (MRL-204) by the FDA, while Market B tracks the voluntary resignation of Atlas Corp's CEO. There is no logical link between these two events.",
+    "reasoning": "Both markets resolve Yes under the exact same condition: Zephyr Bank announcing a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC. They also share the identical resolution source.",
     "evidence_a": [
-      "Resolves Yes if the FDA approves MRL-204 by March 31, 2027, 11:59 PM ET."
+      "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC. Resolution source: Zephyr Bank official statement."
     ],
     "evidence_b": [
-      "Resolves Yes only if the Atlas Corp CEO voluntarily resigns by March 31, 2027, 11:59 PM UTC."
+      "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC. Resolution source: Zephyr Bank official statement."
     ]
   },
   "judge_pair:0e3c2f7489d733c7": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks whether Helix Motors announces a recall of its H3 model, while Market B tracks whether the CEO of Atlas Corp voluntarily resigns. Because these events concern completely different companies and distinct corporate actions, there is no logical link between them.",
+    "reasoning": "Market A tracks whether Helix Motors announces a recall of the H3 model, while Market B tracks whether the CEO of Atlas Corp voluntarily resigns. These are two entirely different events involving different companies, with no logical link between their outcomes.",
     "evidence_a": [
       "Resolves Yes if Helix Motors itself publicly announces a recall of the Helix H3 model by March 31, 2027, 11:59 PM UTC."
     ],
@@ -213,21 +190,32 @@
       "Resolves Yes only if the Atlas Corp CEO voluntarily resigns by March 31, 2027, 11:59 PM UTC."
     ]
   },
+  "judge_pair:702b512f22bf64dc": {
+    "relation": "unrelated",
+    "confidence": "high",
+    "reasoning": "Market A concerns an FDA drug approval for MRL-204, while Market B concerns an interest rate decision by Zephyr Bank. These are completely different subjects with no logical connection.",
+    "evidence_a": [
+      "Resolves Yes if the FDA approves MRL-204 by December 31, 2026, 11:59 PM ET."
+    ],
+    "evidence_b": [
+      "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC."
+    ]
+  },
   "judge_pair:433bc0ba17e2ac4a": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks whether Kestrel Airlines announces a new route to Lisbon. Market B tracks whether the CEO of Atlas Corp resigns. These are two completely distinct corporate events with no logical connection.",
+    "reasoning": "Market A tracks whether Kestrel Airlines announces a new route to Lisbon, while Market B tracks whether the CEO of Atlas Corp resigns. These are two distinct corporate events involving different companies with no logical connection.",
     "evidence_a": [
-      "Kestrel Airlines publicly announces a new route to Lisbon by March 31, 2027, 11:59 PM ET."
+      "Kestrel Airlines publicly announces a new route to Lisbon"
     ],
     "evidence_b": [
-      "Atlas Corp CEO voluntarily resigns by March 31, 2027, 11:59 PM UTC."
+      "Atlas Corp CEO voluntarily resigns"
     ]
   },
   "judge_pair:06c971d2b558485f": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks whether Orion Tech announces a stock split, while Market B tracks whether Atlas Corp's CEO resigns. These are completely different corporate events involving two distinct companies with no logical connection.",
+    "reasoning": "Market A is about a stock split announcement by Orion Tech, while Market B is about the resignation of Atlas Corp's CEO. There is no logical link between these two events at different companies.",
     "evidence_a": [
       "Resolves Yes if Orion Tech publicly announces a stock split by March 31, 2027, 11:59 PM ET."
     ],
@@ -238,7 +226,7 @@
   "judge_pair:7dcca2a4a00400df": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks the closing level of the Vega 500 Index, whereas Market B tracks interest rate decisions by Zephyr Bank. Although both are macroeconomic or financial events occurring by the end of 2026, neither outcome logically forces or prevents the other.",
+    "reasoning": "Market A tracks the closing level of the Vega 500 Index, whereas Market B tracks interest rate decisions by Zephyr Bank. These are two distinct events with no logical dependency between their outcomes.",
     "evidence_a": [
       "Resolves Yes if the Vega 500 Index official closing level on December 31, 2026 is above 5,000."
     ],
@@ -246,23 +234,36 @@
       "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC."
     ]
   },
-  "judge_pair:2876f44e273fd61a": {
+  "judge_pair:02ff793ffe987c26": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks the closing level of the Vega 500 Index, while Market B tracks interest rate cuts by Zephyr Bank. Although both are macroeconomic or financial events with the same deadline, neither outcome logically forces or prevents the other.",
+    "reasoning": "Market A tracks FDA approval of the drug MRL-204, whereas Market B tracks the voluntary resignation of Atlas Corp's CEO. These are two entirely different events with no logical connection.",
     "evidence_a": [
-      "Resolves Yes if the Vega 500 Index official closing level on December 31, 2026 is above 5,500."
+      "Resolves Yes if the FDA approves MRL-204 by March 31, 2027, 11:59 PM ET."
     ],
     "evidence_b": [
-      "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC."
+      "Resolves Yes only if the Atlas Corp CEO voluntarily resigns by March 31, 2027, 11:59 PM UTC."
     ]
   },
   "judge_pair:bca24535d255053b": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks whether Helix Motors will recall its H3 model according to NHTSA, whereas Market B tracks whether Zephyr Bank will cut its benchmark interest rate. These are completely independent events concerning different entities and industries, with no logical link between their outcomes.",
+    "reasoning": "Market A tracks a vehicle recall by Helix Motors via the NHTSA database. Market B tracks an interest rate cut by Zephyr Bank. These two events involve completely different entities and domains with no logical connection.",
     "evidence_a": [
-      "Resolves Yes if a recall notice covering the Helix H3 model is published by NHTSA by December 31, 2026, 11:59 PM ET."
+      "Will Helix Motors recall the H3 model by December 31, 2026?",
+      "Resolves Yes if a recall notice covering the Helix H3 model is published by NHTSA"
+    ],
+    "evidence_b": [
+      "Will Zephyr Bank cut interest rates by December 31, 2026?",
+      "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate"
+    ]
+  },
+  "judge_pair:2876f44e273fd61a": {
+    "relation": "unrelated",
+    "confidence": "high",
+    "reasoning": "Market A resolves based on the closing level of the Vega 500 Index, whereas Market B resolves based on interest rate announcements by Zephyr Bank. Even if macroeconomic conditions might influence both, there is no logical dependency between a stock index level and a central bank rate cut.",
+    "evidence_a": [
+      "Resolves Yes if the Vega 500 Index official closing level on December 31, 2026 is above 5,500."
     ],
     "evidence_b": [
       "Resolves Yes if Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026, 11:59 PM UTC."
@@ -271,7 +272,7 @@
   "judge_pair:949169103d8db069": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks whether Orion Tech will announce a stock split, while Market B tracks whether Zephyr Bank will cut interest rates. These are two completely different entities and distinct financial events with no logical link.",
+    "reasoning": "Market A tracks whether Orion Tech will announce a stock split, while Market B tracks whether Zephyr Bank will cut its benchmark interest rate. These are two completely independent corporate and financial events with no logical connection.",
     "evidence_a": [
       "Orion Tech publicly announces a stock split"
     ],
@@ -282,7 +283,7 @@
   "judge_pair:1d5bb5e994503554": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks whether Kestrel Airlines will announce a new route to Lisbon, while Market B tracks whether Zephyr Bank will cut its benchmark interest rate. These are completely separate entities and events with no logical connection.",
+    "reasoning": "Market A concerns an airline route announcement by Kestrel Airlines, while Market B concerns an interest rate decision by Zephyr Bank. These are two completely independent events with no logical connection.",
     "evidence_a": [
       "Kestrel Airlines publicly announces a new route to Lisbon"
     ],
@@ -293,16 +294,24 @@
   "judge_pair:e72f372f629b633e": {
     "relation": "unrelated",
     "confidence": "high",
-    "reasoning": "Market A tracks a potential merger announcement by Polar Grid Energy, while Market B tracks interest rate cuts by Zephyr Bank. These are completely separate entities and events with no logical link between their outcomes.",
+    "reasoning": "Market A tracks whether Polar Grid Energy will announce a merger agreement. Market B tracks whether Zephyr Bank will cut its benchmark interest rate, which is a completely different entity and event with no logical link.",
     "evidence_a": [
-      "Polar Grid Energy publicly announces a merger agreement"
+      "Polar Grid Energy publicly announces a merger agreement by December 31, 2026"
     ],
     "evidence_b": [
-      "Zephyr Bank announces a cut to its benchmark interest rate"
+      "Zephyr Bank announces a cut to its benchmark interest rate on or before December 31, 2026"
     ]
   },
   "compare_rules:87ab0be7ddc469df": {
-    "differences": [],
+    "differences": [
+      {
+        "topic": "deadline",
+        "quote_a": "by December 31, 2026, 11:59 PM ET",
+        "quote_b": "by March 31, 2027, 11:59 PM ET",
+        "severity": "cosmetic",
+        "explanation": "Rules A requires the announcement by December 31, 2026, which is earlier than Rules B's deadline of March 31, 2027. Since all other resolution criteria and sources are identical, any event that resolves A to Yes will also resolve B to Yes, maintaining the expected A implies B relation."
+      }
+    ],
     "overall": "compatible"
   },
   "compare_rules:5efef8b68b730e42": {
@@ -310,25 +319,17 @@
     "overall": "compatible"
   },
   "compare_rules:78bcad692b4ee2e0": {
-    "differences": [
-      {
-        "topic": "deadline",
-        "quote_a": "by December 31, 2026, 11:59 PM ET.",
-        "quote_b": "by March 31, 2027, 11:59 PM ET.",
-        "severity": "cosmetic",
-        "explanation": "The deadline in A is earlier than the deadline in B, which creates the expected A-implies-B relationship."
-      }
-    ],
+    "differences": [],
     "overall": "compatible"
   },
   "compare_rules:588c08887317c130": {
     "differences": [
       {
         "topic": "time_zone",
-        "quote_a": "11:59 PM ET",
-        "quote_b": "11:59 PM UTC",
+        "quote_a": "ET",
+        "quote_b": "UTC",
         "severity": "cosmetic",
-        "explanation": "Contract A uses ET while Contract B uses UTC. However, because Contract A's deadline (December 31, 2026) is three months earlier than Contract B's deadline (March 31, 2027), the 4-5 hour time zone difference cannot break the implication that A implies B."
+        "explanation": "Rules A uses Eastern Time (ET) while Rules B uses Coordinated Universal Time (UTC). Because the deadline in Rules B is three months after Rules A, the 4-5 hour time zone difference cannot break the implication that A implies B."
       }
     ],
     "overall": "compatible"
@@ -354,27 +355,11 @@
     "overall": "compatible"
   },
   "compare_rules:59c308f9f19f36c9": {
-    "differences": [
-      {
-        "topic": "yes_definition",
-        "quote_a": "Resolves Yes if Redmoor United wins the Northvale Cup final on or before December 20, 2026.",
-        "quote_b": "Resolves Yes if Dunmere Town wins the Northvale Cup final on or before December 20, 2026.",
-        "severity": "material",
-        "explanation": "Neither rule specifies which edition or season of the Northvale Cup is referenced. If the Northvale Cup final is held more than once on or before December 20, 2026 (e.g., an annual tournament held in 2025 and 2026), Redmoor United could win one final and Dunmere Town could win another, causing both contracts to resolve Yes."
-      }
-    ],
-    "overall": "material_differences"
+    "differences": [],
+    "overall": "compatible"
   },
   "compare_rules:680fde9d838f8e5a": {
-    "differences": [
-      {
-        "topic": "yes_definition",
-        "quote_a": "Resolves Yes if Stonebridge wins the Northvale Cup final on or before December 20, 2026.",
-        "quote_b": "Resolves Yes if Dunmere Town wins the Northvale Cup final on or before December 20, 2026.",
-        "severity": "cosmetic",
-        "explanation": "Each contract specifies a different team to win the same final. Because the rules state that 'Exactly one team wins' and both contracts share the same resolution source and deadline, they are strictly mutually exclusive and cannot both resolve Yes."
-      }
-    ],
+    "differences": [],
     "overall": "compatible"
   },
   "compare_rules:96e522bd6af6ad27": {
@@ -388,198 +373,202 @@
         "quote_a": "Resolution source: Atlas Corp SEC filings.",
         "quote_b": "Resolution source: Atlas Corp press release.",
         "severity": "blocker",
-        "explanation": "If the CEO resigns near the deadline, Atlas Corp might issue a press release on March 31, 2027 (resolving B to Yes), while the corresponding SEC Form 8-K is not filed until up to four business days later in April (causing A to resolve No, breaking the B implies A relation)."
+        "explanation": "If the CEO resigns via a press release on March 31, 2027, B resolves Yes, but if the formal SEC filing (Form 8-K) is not submitted until a business day later in April, A could resolve No, breaking the B implies A relation."
       },
       {
         "topic": "yes_definition",
-        "quote_a": "the person serving as Atlas Corp CEO on today's date leaves the role",
-        "quote_b": "the Atlas Corp CEO voluntarily resigns",
+        "quote_a": "the person serving as Atlas Corp CEO on today's date",
+        "quote_b": "the Atlas Corp CEO",
         "severity": "material",
-        "explanation": "Rules A anchors to the specific person holding the role on 'today's date', whereas Rules B refers generally to 'the Atlas Corp CEO'. Also, B does not clarify if announcing a resignation (via press release) vs actually leaving the role counts, which could break B implies A if a resignation is announced before March 31 but takes effect after."
+        "explanation": "A tracks the specific individual serving on 'today's date', whereas B refers generically to 'the Atlas Corp CEO'. If the current CEO is fired (B stays open, A resolves Yes) or if the two contracts have different creation dates ('today's date'), B could resolve Yes for a successor CEO's resignation while A does not."
+      },
+      {
+        "topic": "yes_definition",
+        "quote_a": "leaves the role",
+        "quote_b": "voluntarily resigns",
+        "severity": "material",
+        "explanation": "In addition to the expected scope difference (any reason vs voluntary resignation), 'resigns' in B could be interpreted as announcing a resignation before the deadline with an effective departure date after March 31, 2027, whereas A requires the person to actually 'leave the role' by the deadline."
       }
     ],
     "overall": "incompatible"
   },
   "narrate:87ab0be7ddc469df": {
-    "headline": "Worth a look: Rules match and the gap survives costs. About $11 locked in on $300.",
-    "why_gap": "An announcement by the earlier deadline logically implies an announcement by the later deadline. Buying A NO and B YES guarantees a minimum payout of 1.0, and the current market prices leave a 3.5¢ risk-adjusted edge per share on the clipped size after accounting for spreads, depth, and Polymarket taker fees.",
+    "headline": "Look closely (WARN): Check the rule differences below first. $9.4062 locked in on $300.0 for 310.961 shares (2.63¢ avg_edge, 6.83% ann_ret over 144.4993 days).",
+    "why_gap": "A price-only scanner sees a 9¢ naive_edge and 7¢ top_edge between the earlier and later deadline markets on Polymarket. After spreads, depth across 450.0 shares (costing $438.1567), and $10.6567 in taker fees, the avg_edge is 2.63¢ ($11.8433 net_profit, 2.7% ret). With the 0.5¢ per share haircut on the clipped size of 310.961 shares, the risk_adj_edge is 3.02¢ (7.92% risk_adj_ann).",
     "what_could_go_wrong": [
-      "There are no core flags or rule differences reported.",
-      "The within exposure cap check triggered a warning, resulting in the trade size being clipped to $300 (310.96104784859943 shares) instead of the full 450.0 shares.",
-      "Capital will be tied up for 144.49930555555557 days, and execution slippage could erode the 0.03524894170647408 risk-adjusted edge if order book depth moves before both legs are filled."
+      "Core flag triggered: deadline_semantics:low.",
+      "Rule difference on deadline (cosmetic severity): Market A requires an announcement \"by December 31, 2026, 11:59 PM ET\" while Market B requires it \"by March 31, 2027, 11:59 PM ET\". If any uncaptured criteria prevent an announcement before the earlier date from resolving Market B to YES, the a_implies_b floor of 1.0 fails.",
+      "Exposure cap warning: Position size is clipped from 450.0 shares ($438.1567 cost) down to 310.961 approved_shares ($300.0 approved_cost)."
     ],
     "human_checks": [
-      "Confirm live order book liquidity on Polymarket for both A NO and B YES to ensure 310.96104784859943 shares can be filled within the $300.00000000000006 approved cost.",
-      "Do a final manual read of both market resolution rules to verify that no uncaptured nuances exist outside the 90% extractor confidence."
+      "Verify the full resolution rules for both Polymarket contracts to confirm that all resolution criteria and sources are identical aside from the \"by December 31, 2026, 11:59 PM ET\" and \"by March 31, 2027, 11:59 PM ET\" deadlines.",
+      "Confirm there are no provisions in Market B that could invalidate an announcement made prior to Market A's deadline.",
+      "Check current order book depth on Polymarket to ensure 310.961 shares of A NO and B YES can still be filled within the $300.0 approved_cost."
     ],
-    "recommendation": "approve"
+    "recommendation": "review"
   },
   "narrate:5efef8b68b730e42": {
-    "headline": "Verdict is nothing_to_do (NO_ARB): The prices are consistent with each other.",
-    "why_gap": "There is no profitable price gap. Since an announcement by the earlier date implies an announcement by the later date, the market correctly prices the later date higher, resulting in a negative naive_edge of -16.0¢ and an avg_edge of -0.17999999999999994.",
+    "headline": "Verdict: nothing_to_do (NO_ARB). The prices are consistent with each other, with a naive edge of -16.0¢ and an average edge of -18.0¢.",
+    "why_gap": "There is no profitable gap. Because an announcement by December 31, 2026 implies an announcement by March 31, 2027, the market naturally prices the March 31, 2027 YES higher than the December 31, 2026 YES, leaving a negative edge (-0.16 naive, -0.18 top and average edge) on the A NO and B YES arbitrage combination.",
     "what_could_go_wrong": [
-      "No core flags or rule differences were identified, as both markets match.",
-      "The 'Profit survives spread & depth' check failed because the naive_edge is -16.0¢ with nothing executable.",
-      "Executing the A NO and B YES legs at current prices would result in a profit of -0.19842999999999988 in two of the scenarios (where payout is 1)."
+      "No core flags or rule differences were raised, as the rules match with 90% extractor confidence.",
+      "Executing this trade would lock in a negative edge (-0.18 average edge) and result in a loss of -0.1984 in most payout scenarios."
     ],
     "human_checks": [
-      "No action is required since approved_shares is 0.0 and there is no executable gap.",
-      "If monitoring this pair for future opportunities, confirm that the resolution rules on Polymarket continue to have no differences."
+      "No action is required since approved shares are 0.0 and there is no executable gap.",
+      "Monitor the order books only if prices invert to create a positive edge after accounting for the Polymarket taker fee."
     ],
     "recommendation": "kill"
   },
   "narrate:78bcad692b4ee2e0": {
-    "headline": "Verdict: nothing_to_do (NO_ARB). Prices look 3.0¢ apart, but spreads and thin order books remove the profit.",
-    "why_gap": "While a price-only scanner sees a naive_edge of 3.0¢ between the December 31, 2026 and March 31, 2027 FDA approval markets, the executable top_edge and avg_edge are -5.0¢ once bid-ask spreads, order book depth, and fees are accounted for.",
+    "headline": "Nothing to do (NO_ARB): Prices look 3.0¢ apart, but spreads and thin order books remove the profit.",
+    "why_gap": "A price-only scanner sees a naive_edge of 3.0¢ (0.03) between the two Polymarket FDA approval markets for MRL-204. However, this is an illusion caused by bid-ask spreads and fees; once real order-book execution is accounted for, the top_edge and avg_edge drop to -5.0¢ (-0.05), leaving 0.0 executable shares.",
     "what_could_go_wrong": [
-      "Profit does not survive spread and depth: the 3.0¢ naive_edge becomes an executable avg_edge of -5.0¢, leaving 0.0 approved_shares and $0.0 net_profit.",
-      "Core flag raised: deadline_semantics:low.",
-      "Rule difference on deadline (cosmetic): Leg A resolves 'by December 31, 2026, 11:59 PM ET.' whereas Leg B resolves 'by March 31, 2027, 11:59 PM ET.' (The deadline in A is earlier than the deadline in B, which creates the expected A-implies-B relationship)."
+      "No core flags or rule differences were detected, as every quoted clause was found verbatim in the rules with no differences.",
+      "The Profit survives spread & depth check failed because the 3.0¢ naive gap turns into a -5.0¢ (-0.05) avg_edge after spreads, depth, and the Polymarket taker fee.",
+      "Executing this trade in the worst-case scenarios results in a profit of -0.0707 per share."
     ],
     "human_checks": [
-      "No action required right now as there is no executable arbitrage gap.",
-      "If monitoring for future entry, watch the order books on Polymarket for 'A NO' and 'B YES' until the executable top_edge turns positive after factoring in the Polymarket taker fee.",
-      "Confirm that all resolution criteria outside of the December 31, 2026 vs. March 31, 2027 deadlines remain identical between both markets."
+      "No immediate human checks are needed since approved_shares is 0.0 and there is nothing executable.",
+      "If monitoring these markets for future passive limit orders, confirm the live order-book bid-ask spreads on Polymarket and verify the exact resolution wording for FDA approval of MRL-204 in both contracts."
     ],
     "recommendation": "kill"
   },
   "narrate:588c08887317c130": {
-    "headline": "Look closely (WARN): Check the rule differences below first. About $5 locked in on $194 ($5.606999999999999 net profit, or $4.606999999999999 approved profit after haircut, on $194.393 cost across 200.0 shares).",
-    "why_gap": "Contract A (merger announced by December 31, 2026) logically implies Contract B (merger announced by March 31, 2027), allowing a combination of A NO and B YES. While a price-only scanner sees a naive_edge of 0.07000000000000006, order book spreads, depth across 200.0 shares, and $3.3930000000000007 in Polymarket taker fees reduce the avg_edge to 0.028034999999999997 (2.8¢ per share) and risk_adj_edge to 0.023034999999999996 (2.3¢ per share) after a 0.005 (0.5¢) haircut_per_share. Capital is also tied up for 144.33263888888888 days for a risk_adj_ann of 0.05993298416706553 (6% a year).",
+    "headline": "Look closely (WARN): Check the rule differences first. Buying 200.0 shares of A NO and B YES costs $194.393 (including $3.393 in fees) for $5.607 net profit ($4.607 approved profit after haircut).",
+    "why_gap": "A merger announced by the earlier December 31, 2026 deadline in Market A implies a merger announced by the later March 31, 2027 deadline in Market B. A naive scanner sees a 7¢ (0.07) per share edge, which narrows to 5¢ (0.05) at the top of the book and an average edge of 2.8¢ (0.028) across 200.0 shares after spreads, depth, and fees (yielding a 2.88% return, or 7.29% annualized over 144.3326 days). After applying a 0.5¢ (0.005) per share rule-risk haircut, the risk-adjusted edge is 2.3¢ (0.023) per share, or 5.99% annualized.",
     "what_could_go_wrong": [
-      "Core flag 'timezone:low' and rule difference on 'time_zone' (cosmetic severity): Contract A specifies '11:59 PM ET' while Contract B specifies '11:59 PM UTC'. Although Contract A's deadline (December 31, 2026) is months earlier than Contract B's deadline (March 31, 2027) so the 4-5 hour difference should not break the implication, any unexpected rule mismatch remains a point of caution.",
-      "Extractor confidence is 90% (needs 75%), leaving a small chance of uncaptured nuances in the full rule text.",
-      "Execution slippage or book movement if the 200.0 shares of depth change before both legs (A NO and B YES) are filled."
+      "Core flag 'timezone:low' and rule difference on 'time_zone' (cosmetic severity): Rules A specifies Eastern Time (ET) while Rules B specifies Coordinated Universal Time (UTC). Although the deadline in Market B is months after Market A—meaning the hours of time zone difference should not break the implication that A implies B—any unquoted discrepancies in how the two markets define 'Polar Grid Energy' or 'announce a merger' could cause A to resolve YES while B resolves NO.",
+      "Execution risk: Order book depth could shift before both legs are filled for 200.0 shares on Polymarket, reducing the 2.8¢ average edge."
     ],
     "human_checks": [
-      "Read the full resolution rules on Polymarket for both December 31, 2026 (Contract A) and March 31, 2027 (Contract B) to confirm that 'announce a merger' and the resolution sources are defined identically aside from the '11:59 PM ET' vs '11:59 PM UTC' time_zone difference.",
-      "Confirm live order book depth still supports 200.0 shares within the $194.393 total cost before executing."
+      "Confirm in the full rule text that the cosmetic time zone difference (ET in Market A vs. UTC in Market B) is the only discrepancy and that both markets use identical resolution sources and definitions for a merger announcement.",
+      "Verify live order book depth on Polymarket for both A NO and B YES to ensure 200.0 shares can still be filled at a total cost of $194.393."
     ],
     "recommendation": "review"
   },
   "narrate:5a45914f2ff8344f": {
-    "headline": "worth_a_look: Rules match and the gap survives costs. About $13 locked in on $300.",
-    "why_gap": "A logical implication exists between the two Polymarket contracts where closing above 5,500 on December 31, 2026 implies closing above 5,000 on December 31, 2026. Buying A YES and B NO locks in a minimum payout of 1.0, and after accounting for spreads, depth across 400.0 shares, and a fee_cost of $7.8144, an avg_edge of 0.040464000000000055 per share remains.",
+    "headline": "worth_a_look: Rules match and the gap survives costs. About $12.6511 locked in on $300.0 (28.39% annualized over 54.2083 days).",
+    "why_gap": "Market B (closing above 5,500) logically implies Market A (closing above 5,000), creating a $1.0 payout floor when buying A YES and B NO. A naive_edge of 8¢ shrinks to an avg_edge of 4.05¢ per share after spreads, depth, and $7.8144 in fees across 400.0 available shares.",
     "what_could_go_wrong": [
-      "No core flags or rule differences were identified, though the within exposure cap check triggered a warning and clipped the position size to an approved_cost of $300.0 (312.651114705441 approved_shares) from $383.8144.",
-      "Extractor confidence is 90%, leaving a chance that an unparsed clause could affect resolution.",
-      "Orderbook prices or available liquidity may shift before both legs are filled."
+      "No core flags or rule_differences were reported.",
+      "The trade was clipped to the $300.0 exposure cap (312.6511 approved_shares out of 400.0 available shares).",
+      "Extractor confidence is 90%, leaving a small chance of an uncaptured nuance in the contract wording.",
+      "Orderbook depth could move before both legs are filled at the expected average cost."
     ],
     "human_checks": [
-      "Read the full Polymarket resolution rules for both contracts to confirm that closing above 5,500 on December 31, 2026 strictly implies closing above 5,000 on December 31, 2026 with identical data sources and settlement timing.",
-      "Confirm live orderbook depth on Polymarket supports filling 312.651114705441 approved_shares for an approved_cost of $300.0 to lock in the approved_profit of $12.651114705440989."
+      "Confirm both Polymarket markets reference the exact same Vega 500 settlement source and closing time on December 31, 2026.",
+      "Verify live orderbook depth still supports buying 312.6511 shares of A YES and B NO within the $300.0 approved_cost."
     ],
     "recommendation": "approve"
   },
   "narrate:3e86b5fbdade03af": {
-    "headline": "Core verdict is nothing_to_do (NO_ARB): The prices are consistent with each other.",
-    "why_gap": "There is no profitable gap. These mutually_exclusive markets have a naive_edge of -26.0¢ (-0.2599999999999998) and an avg_edge of -0.2799999999999998, meaning both Harbor FC and Redmoor United can lose the Northvale Cup without the combined NO prices offering an arbitrage floor above cost.",
+    "headline": "Verdict is nothing_to_do (NO_ARB): The prices are consistent with each other.",
+    "why_gap": "There is no actionable arbitrage gap. The naive_edge is -0.26 (-26.0¢) and the avg_edge after spreads, depth, and fees is -0.28, meaning the mutually exclusive outcomes for Harbor FC and Redmoor United in the Northvale Cup are priced consistently without an executable edge.",
     "what_could_go_wrong": [
-      "No core flags or rule differences were triggered, as all rule checks passed with 90% extractor confidence (needs 75%).",
-      "Executing this trade anyway fails the 'Profit survives spread & depth' check (naive -26.0¢ but nothing executable) and locks in a guaranteed loss of -0.3027899999999999 if either Harbor FC or Redmoor United wins."
+      "No core flags or rule differences were identified, as rules match with no differences found.",
+      "Profit does not survive spread and depth: naive_edge is -26.0¢ and avg_edge is -0.28, leaving 0.0 approved_shares.",
+      "Executing this trade anyway risks a profit of -0.3028 if either team wins the cup (payout of 1 against a floor of 1.0)."
     ],
     "human_checks": [
-      "No human checks are needed before approving because there is no trade to approve (approved_shares is 0.0 and net_profit is 0.0)."
+      "No immediate human checks are needed before approving because the trade should be killed.",
+      "Wait for order book prices on Polymarket to shift significantly before re-evaluating."
     ],
     "recommendation": "kill"
   },
   "narrate:7fe483843b6747e2": {
-    "headline": "Verdict: nothing_to_do (NO_ARB) — The prices are consistent with each other.",
-    "why_gap": "There is no profitable price gap. These are mutually_exclusive markets on whether Harbor FC or Stonebridge will win the Northvale Cup, meaning other teams could also win. Buying A NO and B NO has a payout floor of $1.0, but the naive_edge is -36.0¢ (-0.3599999999999999) and the avg_edge after spreads, depth, and fees is -0.3799999999999999 per share.",
+    "headline": "Verdict is nothing_to_do (NO_ARB): The prices are consistent with each other, with a naive_edge of -36.0¢ and an avg_edge of -38¢.",
+    "why_gap": "There is no profitable price gap. These two markets are mutually_exclusive, and buying A NO and B NO yields a naive_edge of -0.36 (-36.0¢) and an avg_edge of -0.38 (-38¢) against a floor of 1.0.",
     "what_could_go_wrong": [
-      "No core flags or rule differences were identified, as all rule checks passed with no differences found.",
-      "Profit survives spread & depth check failed: naive -36.0¢ but nothing executable.",
-      "Executing this pair locks in a loss of -0.4003899999999998 per share if either Harbor FC or Stonebridge wins the Northvale Cup (payout of $1)."
+      "No core flags or rule differences were identified, as rules match with no differences found.",
+      "Executing this trade would lock in a negative edge (avg_edge of -0.38), where if either Harbor FC or Stonebridge wins the Northvale Cup, the payout is 1 and the profit is -0.4004."
     ],
     "human_checks": [
-      "No human checks are needed because approved_shares is 0.0 and there is no executable arbitrage.",
-      "If monitoring these markets for future setups, confirm that the resolution rules on polymarket for both Northvale Cup contracts remain identical."
+      "No checks are needed because approved_shares is 0.0 and there is no executable gap."
     ],
     "recommendation": "kill"
   },
   "narrate:c04e9557ef4da215": {
     "headline": "Verdict is nothing_to_do (NO_ARB): The prices are consistent with each other.",
-    "why_gap": "There is no profitable gap. These mutually_exclusive markets on Polymarket (buying A NO and B NO for Harbor FC and Dunmere Town in the Northvale Cup) show a negative naive_edge of -42.0¢ (-0.41999999999999993) and an avg_edge of -0.43999999999999995 against a floor of 1.0.",
+    "why_gap": "There is no actionable arbitrage gap. These mutually exclusive markets have a naive edge of -42.0¢ (-0.42) and an average edge after spreads and fees of -0.44, meaning the NO legs cost too much to lock in a guaranteed return above the 1.0 floor.",
     "what_could_go_wrong": [
-      "Executing this trade locks in a loss if either team wins: in scenarios where the payout is 1, the profit is -0.45846999999999993.",
-      "The check for 'Profit survives spread & depth' failed because naive is -42.0¢ with nothing executable.",
-      "No core flags or rule differences were reported, as rules match with no differences found."
+      "No core flags or rule differences were triggered, as the rules match with 90% extractor confidence.",
+      "The check for 'Profit survives spread & depth' failed because the naive edge is -42.0¢ with nothing executable.",
+      "Executing this pair would result in a loss of -0.4585 per share if either Harbor FC or Dunmere Town wins the Northvale Cup."
     ],
     "human_checks": [
-      "No action is needed since approved_shares is 0.0 and there is no executable gap.",
-      "Wait for order book prices on Harbor FC and Dunmere Town to move significantly before re-evaluating."
+      "No human checks are necessary because approved_shares is 0.0 and there is no trade to execute."
     ],
     "recommendation": "kill"
   },
   "narrate:6f993252fa54ed38": {
-    "headline": "Verdict: nothing_to_do (NO_ARB). The prices are consistent with each other, with an avg_edge of -48¢ and approved_shares of 0.0.",
-    "why_gap": "There is no profitable gap. Because these mutually exclusive outcomes leave room for a third team to win the Northvale Cup, buying A NO and B NO only guarantees a floor of 1.0 dollar while costing more than that, resulting in a naive_edge of -46.0¢ and an avg_edge of -48¢.",
+    "headline": "Verdict: nothing_to_do (NO_ARB). The prices are consistent with each other.",
+    "why_gap": "There is no actionable arbitrage gap. For the mutually exclusive legs A NO and B NO, the naive_edge is -0.46 (-46.0¢) and the avg_edge after spreads, depth, and fees is -0.48.",
     "what_could_go_wrong": [
-      "No core flags or rule differences were triggered, as rules match with no differences found.",
-      "Profit survives spread & depth failed: naive -46.0¢ and avg_edge -48¢ mean there is nothing executable.",
-      "Executing this basket would lock in a loss of -0.49899000000000004 dollars per share if either Redmoor United or Stonebridge wins the Northvale Cup."
+      "No core flags or rule differences were reported, as Rules match passed with no differences found.",
+      "Executing this pair would lose money: the check 'Profit survives spread & depth' failed with a naive -46.0¢ and avg_edge of -0.48, leaving 0.0 approved_shares and 0.0 net_profit.",
+      "In scenarios where one team wins the Northvale Cup, the payout is 1 and the profit is -0.499."
     ],
     "human_checks": [
-      "No action required since approved_cost is 0.0 dollars and there is no executable gap.",
-      "Wait for order book prices on Polymarket to shift enough to produce a positive avg_edge before reviewing again."
+      "No checks are needed because approved_cost is 0.0 and there is no trade to execute.",
+      "If monitoring these markets for future setups, confirm the Polymarket order books shift enough to turn avg_edge positive after the Polymarket taker fee."
     ],
     "recommendation": "kill"
   },
   "narrate:59c308f9f19f36c9": {
-    "headline": "Nothing to do (NO_ARB): The prices are consistent with each other, with a naive edge of -52.0¢ and an average edge of -54.0¢.",
-    "why_gap": "There is no profitable gap. Buying both A NO and B NO for mutually exclusive outcomes yields a naive edge of -0.52 dollars per share and an executable average edge of -0.54 dollars per share against the 1.0 dollar floor, because other teams besides Redmoor United and Dunmere Town can win the Northvale Cup.",
+    "headline": "Nothing to do: The prices are consistent with each other (NO_ARB) with a naive edge of -52.0¢.",
+    "why_gap": "There is no profitable gap. Buying A NO and B NO across these mutually exclusive Polymarket markets yields a naive edge of -52.0¢ (-0.52) and an average edge of -54.0¢ (-0.54) after spreads, depth, and fees.",
     "what_could_go_wrong": [
-      "Core flag 'definition:medium' and material rule difference on 'yes_definition': Neither contract specifies which edition or season of the Northvale Cup is referenced prior to the cutoff of December 20, 2026.",
-      "If the Northvale Cup final is played multiple times on or before December 20, 2026 (such as in 2025 and 2026), Redmoor United could win one final and Dunmere Town could win another, causing both contracts to resolve Yes and breaking mutual exclusivity.",
-      "Check 'Profit survives spread & depth' failed because the naive edge is -52.0¢ and nothing is executable, resulting in a -0.55707 dollar profit if either team wins."
+      "No flags or rule differences were triggered, as the rules match with no differences found.",
+      "Executing this pair would result in a loss of -0.5571 dollars per share if either Redmoor United or Dunmere Town wins the Northvale Cup (where payout is 1.0), because the profit does not survive spread and depth."
     ],
     "human_checks": [
-      "No action required as this trade is a kill with 0.0 approved shares.",
-      "If monitoring these markets for future price changes, verify the Northvale Cup schedule to confirm whether multiple finals occur on or before December 20, 2026."
+      "No action is needed since approved_shares is 0.0 and there is no executable gap.",
+      "Only re-evaluate if market prices move enough to turn avg_edge positive."
     ],
     "recommendation": "kill"
   },
   "narrate:680fde9d838f8e5a": {
     "headline": "Verdict is nothing_to_do (NO_ARB): The prices are consistent with each other.",
-    "why_gap": "There is no profitable price gap. The naive edge is -62.0¢ (-0.6200000000000001) and the average edge is -0.6400000000000001, meaning the combined cost of buying NO on both mutually exclusive legs exceeds the guaranteed floor payout of $1.0.",
+    "why_gap": "There is no actionable arbitrage gap. These mutually_exclusive Polymarket markets on whether Stonebridge or Dunmere Town will win the Northvale Cup are priced consistently, showing a naive_edge of -62.0¢ (-0.62) and an avg_edge of -0.64 against a floor of 1.0.",
     "what_could_go_wrong": [
-      "Executing this trade locks in a loss in scenarios where either Stonebridge or Dunmere Town wins, resulting in a payout of $1 and a profit of -0.6546700000000001.",
-      "Core flag raised: definition:low.",
-      "Rule difference on yes_definition (cosmetic severity): Contract A resolves Yes if Stonebridge wins the Northvale Cup final, whereas Contract B resolves Yes if Dunmere Town wins the Northvale Cup final."
+      "No core flags or rule differences were identified, as rules match with no differences found.",
+      "Executing this combination (A NO and B NO) locks in a negative edge, where a payout of 1 results in a profit of -0.6547 if either team wins.",
+      "The check for 'Profit survives spread & depth' failed with a naive -62.0¢ and nothing executable."
     ],
     "human_checks": [
-      "No action is required since approved_shares is 0.0 and there is nothing executable.",
-      "If monitoring these markets for future setups, confirm in the rules that 'Exactly one team wins' and that both contracts share the identical resolution source and deadline."
+      "No human checks are necessary because approved_shares is 0.0 and there is nothing executable to approve."
     ],
     "recommendation": "kill"
   },
   "narrate:96e522bd6af6ad27": {
-    "headline": "Look closely (WARN): Check the rule differences below first. About $17 locked in on $300.",
-    "why_gap": "A naive edge of 0.12 shrinks to an average edge of 0.07289999999999998 after accounting for spreads, depth across 500.0 shares, and a fee_cost of $13.55, and further reduces to a risk_adj_edge of 0.052877809999999956 after a 0.02 per share rule-risk haircut due to cross-venue settlement risk.",
+    "headline": "Look closely (WARN): Check the rule differences below first. About $17.1107 locked in on $300.0072 for 323.5897 shares, with a risk-adjusted edge of 5.29¢ per share (38.31% annualized over 54.3326 days).",
+    "why_gap": "A naive edge of 12¢ narrows to an average edge of 7.29¢ per share after spreads, depth, and $13.55 in fees across 500.0 shares, and further to a 5.29¢ risk-adjusted edge after a 2.0¢ rule-risk haircut due to cross-venue oracle risk between Polymarket and Kalshi.",
     "what_could_go_wrong": [
-      "Flag venue_oracle:medium: Polymarket and Kalshi settle contracts by their own processes, meaning even when the wording matches, they can rule differently on an edge case or settle at different times.",
-      "Exposure cap warning: The position is clipped from 500.0 shares (cost of $463.55 and net_profit of $36.44999999999999) down to 323.58968827526695 approved_shares at an approved_cost of $300.00718045518283 and an approved_profit of $17.11071405457878."
+      "Flag venue_oracle:medium and Rules match warning: Polymarket and Kalshi settle contracts by their own processes. Even when the wording matches, they can rule differently on an edge case, or settle at different times.",
+      "Within exposure cap warning: Position size is clipped to $300.0072 (323.5897 approved shares) from the full 500.0 shares ($463.55 cost)."
     ],
     "human_checks": [
-      "Read the exact resolution rules on both Polymarket and Kalshi for the December 31, 2026 Zephyr Bank interest rate cut contract to confirm what constitutes a rate cut and which official source each venue uses.",
-      "Verify how each venue handles edge cases such as unscheduled meetings, different types of policy rates, or announcements made before the deadline that take effect afterward.",
-      "Confirm current order book depth on both venues to ensure the 323.58968827526695 approved_shares can still be filled at the expected prices."
+      "Read the exact resolution rules on both Polymarket and Kalshi for the Zephyr Bank interest rate cut contract to confirm what constitutes an official rate cut and which source each venue uses.",
+      "Confirm the exact settlement dates, timezones, and any potential edge cases in how both venues adjudicate announcements versus effective dates.",
+      "Verify live order book depth on Polymarket (A YES) and Kalshi (B NO) to ensure 323.5897 shares can still be filled at a total cost of $300.0072."
     ],
     "recommendation": "review"
   },
   "narrate:58a4446df613d16c": {
-    "headline": "nothing_to_do (NO_ARB): The prices are consistent with each other, with a naive edge of -15.0¢ and approved_shares of 0.0.",
-    "why_gap": "There is no positive arbitrage gap; the prices are consistent with the b_implies_a relation (leaving in any manner vs. resigning), resulting in a negative naive_edge of -15.0¢ and an avg_edge of -0.16999999999999993.",
+    "headline": "Core verdict is nothing_to_do (NO_ARB): the prices are consistent with each other, with a naive_edge of -0.15 and avg_edge of -0.17.",
+    "why_gap": "There is no actionable arbitrage gap here; naive_edge is -0.15 (-15.0¢) and avg_edge is -0.17. Furthermore, the markets Price in legitimate structural and scope differences: Polymarket covers any departure ('leaves the role') while Kalshi covers only when the CEO 'voluntarily resigns', and they rely on different resolution sources and definitions.",
     "what_could_go_wrong": [
-      "Negative edge (Profit survives spread & depth failed): naive -15.0¢ and avg_edge of -0.16999999999999993 mean there is nothing executable, resulting in 0.0 net_profit.",
-      "source:high (data_source blocker): Leg A resolves via Atlas Corp SEC filings, while Leg B resolves via an Atlas Corp press release. If the CEO resigns near the deadline, a press release might be issued on March 31, 2027 (resolving B to Yes), while the corresponding SEC Form 8-K is not filed until up to four business days later in April (causing A to resolve No, breaking the B implies A relation).",
-      "definition:medium (yes_definition material): Rules A anchors to the specific person holding the role on 'today's date' leaving the role, whereas Rules B refers generally to 'the Atlas Corp CEO' voluntarily resigning. Furthermore, B does not clarify whether announcing a resignation via press release versus actually leaving the role counts, which could break B implies A if a resignation is announced before March 31, 2027, but takes effect afterward.",
-      "venue_oracle:medium: Polymarket and Kalshi settle contracts by their own processes, and can rule differently on edge cases or settle at different times even when wording matches."
+      "Negative edge (Profit survives spread & depth failed): naive_edge is -0.15 and avg_edge is -0.17, meaning there is nothing executable and base scenarios yield a profit of -0.1862.",
+      "Data source mismatch (flag source:high, blocker severity): Polymarket uses 'Resolution source: Atlas Corp SEC filings.' whereas Kalshi uses 'Resolution source: Atlas Corp press release.' If the CEO resigns via a press release on March 31, 2027, Kalshi resolves Yes, but if the formal SEC filing (Form 8-K) is not submitted until a business day later in April, Polymarket could resolve No, breaking the B implies A relation.",
+      "Person tracked mismatch (flag definition:medium, material severity): Polymarket specifies 'the person serving as Atlas Corp CEO on today's date' while Kalshi refers generically to 'the Atlas Corp CEO'. If the two contracts have different creation dates or a successor CEO resigns, Kalshi could resolve Yes while Polymarket does not.",
+      "Departure vs announcement timing (flag definition:medium, material severity): Polymarket requires that the CEO 'leaves the role' by the deadline, while Kalshi triggers if the CEO 'voluntarily resigns'. Kalshi could resolve Yes upon an announced resignation before March 31, 2027 with a later effective departure date, while Polymarket resolves No.",
+      "Venue oracle divergence (flag venue_oracle:medium): Polymarket and Kalshi settle contracts by their own independent processes and can rule differently on edge cases or settle at different times."
     ],
     "human_checks": [
-      "Do not trade now; wait for an executable positive price gap before allocating time to review.",
-      "If prices move to create a positive gap, verify whether Kalshi's resolution rules treat a resignation announcement press release before March 31, 2027, as sufficient for Yes even if the departure takes effect later.",
-      "Assess the timing risk near March 31, 2027, between an immediate Atlas Corp press release and a subsequent SEC Form 8-K filing."
+      "No checks are needed right now because approved_shares is 0.0 and there is no executable arbitrage.",
+      "If prices ever invert to show a positive edge, verify the creation dates ('today's date') of both contracts to ensure they track the exact same individual.",
+      "Confirm whether Kalshi's 'voluntarily resigns' rule triggers on announcement date or effective departure date, and weigh the timing risk between press releases and SEC Form 8-K filings near March 31, 2027."
     ],
     "recommendation": "kill"
   }
