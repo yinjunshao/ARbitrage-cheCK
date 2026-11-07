@@ -22,4 +22,5 @@ def markets():
 def cfg(tmp_path):
     return replace(Config(), gemini_api_key=None, audit_path=tmp_path / "audit.jsonl",
                    labels_path=tmp_path / "labels.jsonl", cache_dir=tmp_path / "cache",
-                   fixtures_dir=FIXTURES, core="fake", kalshi_member=True)
+                   fixtures_dir=FIXTURES, replay_file=FIXTURES / "llm_replay_sample.json",
+                   core="fake", kalshi_member=True)

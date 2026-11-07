@@ -34,9 +34,12 @@ class LabelStore:
     def add(self, pair_id: str, a: Market, b: Market, relation: str, confirmed: bool, note: str = "",
             proposed: str | None = None) -> dict:
         ek = event_key(a, b)
+        # Labels need text, not prices. Kalshi's terms bar storing its data, so never keep its prices.
+        strip = {"yes_bid", "yes_ask", "no_bid", "no_ask", "depth"}
+        dump = lambda m: {k: v for k, v in m.model_dump().items() if not (m.venue == "kalshi" and k in strip)}
         rec = {"pair_id": pair_id, "relation": relation, "proposed": proposed, "confirmed": confirmed,
                "note": note, "event_key": ek, "split": split_for(ek), "ts": time.time(),
-               "a": a.model_dump(), "b": b.model_dump()}
+               "a": dump(a), "b": dump(b)}
         with self._lock, self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return rec

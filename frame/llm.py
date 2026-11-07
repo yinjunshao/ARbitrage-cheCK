@@ -121,5 +121,17 @@ class ReplayLLM(FakeLLM):
 
 def make_llm(cfg: Config, audit: AuditLog | None, replay: bool) -> LLMClient:
     if replay or not cfg.gemini_api_key:
-        return ReplayLLM(cfg.fixtures_dir / "llm_replay.json", audit)
+        return ReplayLLM(cfg.replay_file, audit)
     return GeminiClient(cfg, audit)
+
+
+class RecordingLLM:
+    """Wraps a live client and keeps every output keyed like ReplayLLM, so a live run can be replayed offline."""
+
+    def __init__(self, inner: LLMClient):
+        self.inner, self.name, self.recorded = inner, inner.name, {}
+
+    def generate(self, call, system, user, schema, model, key=""):
+        out = self.inner.generate(call, system, user, schema, model, key)
+        self.recorded[f"{call}:{key}"] = out.model_dump()
+        return out

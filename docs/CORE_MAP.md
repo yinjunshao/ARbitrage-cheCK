@@ -1,44 +1,61 @@
-# CORE_MAP: frame ⇄ numeric core
+# CORE_MAP: frame ⇄ numeric core (arbcheck)
 
-> **Status 2026-11-07: NOT VERIFIED.** The core (`core/checker`, Debby) is not in this repo or on `origin` yet
-> (`git ls-remote origin` showed no branches). Nothing below has been read from real code. The frame runs against
-> `FakeCoreAdapter` until this page is rewritten from the actual source.
+> Written from the real code on branch `arbcheck-submission` (merged into `frame/llm-layer`, 2026-11-07).
+> Core lives in `arbcheck-project/arbcheck/` (standard library only, 152 tests). The frame does not edit it.
 
 ## The seam
 
-`frame/adapter.py` is the only file that imports the core. The frame needs four things from it:
+`frame/adapter.py` is the only frame file that imports `arbcheck`. It adds `arbcheck-project/` to `sys.path`.
 
-| Frame call | Purpose | Status |
-|---|---|---|
-| `price(relation, size) -> CoreResult` | floor payout, order-book walk, fees, annualised return, guard verdict | **Assumed** to wrap `fac_core.evaluate(rel, size) -> Opportunity` (note 12) |
-| `list_open_markets(venues) -> list[Market]` | discovery through the core's compliant, allowlisted, rate-spaced client | **Not wired.** Should call the `compliance.py` venue adapters (note 13) |
-| `parse_link(url) -> Market` | link parsing for the Check page | **Not wired.** Should call `venues.py` |
-| `compare_rules(a, b) -> VerifiedRuleDiff \| None` | reuse `relations.py --llm` quote extractor | **Not wired.** Returns `None`, so the frame's own `rulediff.py` runs |
+| Frame call (`CoreAdapter`) | arbcheck code it uses |
+|---|---|
+| `price(relation, budget) -> CoreResult` | `pipeline.evaluate_case(markets, Relation, Guard(Limits(max_notional=budget)), now, log=DecisionLog)` → `Case.arb: ArbResult`, `Case.decision: Decision` |
+| `list_open_markets(venues)` | demo: `demo_data.demo_markets()`; live: `polymarket.fetch_stubs(limit)` (through `compliance.ReadOnlyClient`) |
+| `resolve(line)` | `venues.Registry.resolve` (links parsed locally, never fetched; words searched with the ≥35% overlap rule) |
+| order books | `Registry.hydrate` at price time (live only) |
+| `compare_rules` | not reused: `relations.LLMExtractor` is Anthropic-shaped and fuses relation + flags; the frame's Gemini `rulediff` returns per-topic verified quotes instead |
 
-## Known conflicts between the two planning notes
+## Core public types the frame reads
 
-| Topic | Note 12 (architecture) | Note 13 (hand-off) |
-|---|---|---|
-| Package | `src/fac_core/` with `api.py`, `constraints.py`, `fees.py`… | top-level `venues.py`, `engine.py`, `guard.py`, `finder.py`… |
-| Entry point | `evaluate(rel, size) -> Opportunity` | "find the single function that takes markets + relation and returns a priced verdict" |
-| Verdict | not in `Opportunity` field list | `guard.py` returns worth a look / look closely / blocked / nothing to do |
-| Relation types | complement, exhaustive, implication, cross-venue | implication, same event cross-venue, mutually exclusive set, Yes+No |
-| LLM vendor in core | Anthropic | core `--llm` mode uses Claude; **frame uses Gemini** |
+| arbcheck | Fields used |
+|---|---|
+| `models.Market` (dataclass) | `id, question, rules, end, yes/no: Book, venue, url, fee, tradeable, group, meta` |
+| `relations.Relation` | `kind, confidence, flags[MismatchFlag], rationale, extractor, evidence_a/b, verified, problems, basis` |
+| `relations.MismatchFlag` | `kind ∈ {deadline_semantics, source, timezone, definition, inclusion, tie_handling, venue_oracle}`, `severity ∈ {low, medium, high}`, `clause_a, clause_b, note` |
+| `engine.ArbResult` | `kind, legs, floor, naive_edge, top_edge, avg_edge, shares, cost, fee_cost, net_profit, ret, ann_ret, days, fees[Fee], scenarios` |
+| `guard.Decision` | `status ∈ {OK, WARN, BLOCKED, NO_ARB}, headline, checks[Check], approved_*, haircut_per_share, risk_adj_edge, risk_adj_ann, clipped` |
 
-`RealCoreAdapter` tries `fac_core`, then `core`, then `engine`, and maps fields by the note-12 names. Every
-mapping is marked `TODO(core)`.
+Units: prices and edges are dollars per share (0.01 = 1¢); `ret`/`ann_ret` are fractions.
 
-## Frame-side assumptions to check against real code
+## Mappings (frame → arbcheck)
 
-1. `CoreResult` fields (`frame/schemas.py`) match `Opportunity`, plus a `verdict` from the guard and `guard_checks`.
-2. `fees` is a dict per venue (the adapter converts a list if needed).
-3. The frame's `RelationType` maps onto the core's relation names: `same_event` → cross-venue; `a_implies_b` /
-   `b_implies_a` → implication with legs ordered; `exhaustive_set` → exhaustive; `mutually_exclusive` → ?
-4. All fractions (edges, returns) are 0–1, not percent. The grounding check accepts either `x` or `100·x`.
-5. The core is deterministic and does no I/O inside `evaluate` (note 12). Discovery I/O goes through its client.
+| Frame | arbcheck |
+|---|---|
+| relation `same_event` / `a_implies_b` / `b_implies_a` / `mutually_exclusive` / `exhaustive_set` | kind `equivalent` / `a_implies_b` / `b_implies_a` / `mutually_exclusive` / `partition` |
+| rule topic `data_source` / `yes_definition` / `time_zone` / `deadline` / `tie_break` / `other` | flag `source` / `definition` / `timezone` / `deadline_semantics` / `tie_handling` / `definition` |
+| severity `blocker` / `material` / `cosmetic` | `high` / `medium` / `low` |
+| judge confidence `low` / `medium` / `high`; human-edited | `0.5` / `0.75` / `0.9`; `0.75` (guard minimum is 0.75) |
+| evidence verified and not edited | `basis="text"`; otherwise `basis="human"` (rationale names the confirmer) |
+| any rule-diff quote unverified | `verified=False` → guard BLOCKS |
+| guard status `OK` / `WARN` / `BLOCKED` / `NO_ARB` | verdict `worth_a_look` / `look_closely` / `blocked` / `nothing_to_do` |
+| budget (UI "Max notional $") | `Limits.max_notional` |
 
-## Frame-side guarantees regardless of the core
+## Caution only ever increases
 
-- The core only ever receives a `Relation` built after a human confirms.
-- The frame can only tighten the core's verdict (incompatible rules → `blocked`), never loosen it.
-- Narratives are rejected if they contain a number not in the core result or a verified quote.
+- Gemini's rule differences become flags: a `blocker` becomes a `high` flag, and the guard blocks.
+- The core's own deterministic flags are unioned in (`HeuristicExtractor._flags`) for equivalent/implication
+  pairs, and `venue_oracle` for every cross-venue pair, matching the core's "cross-venue always carries rule risk".
+- `tighten()` can move a verdict towards `blocked`, never away. The UI cannot approve `blocked`/`nothing_to_do`.
+
+## Verified (tests/frame/test_arbcheck_adapter.py, offline)
+
+Core demo outcomes reproduced through the adapter: Orion and Vega worth a look; Helix blocked; Polar and Zephyr
+look closely; Kestrel and Marlow nothing to do. Also: blocker → blocked; unverified quote → blocked; low confidence
+→ blocked; budget clips size; links resolve through the core registry; manual legs priced; full pipeline with the
+real core passes and the audit chain verifies.
+
+## Not verified
+
+- Live venue calls (core README: adapters were only tested on canned JSON). `--live` is the first real run.
+- Kalshi live: only via links/search (arbcheck has no Kalshi "list all" call), and only with `--kalshi-member`.
+- Crypto exclusion on live Polymarket is a heuristic in the adapter (fee k=0.07 or crypto words), since stubs carry no category.

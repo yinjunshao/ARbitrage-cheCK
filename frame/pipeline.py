@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from . import candidates as cand
-from .adapter import CoreAdapter, get_adapter
+from .adapter import CoreAdapter, get_adapter, tighten
 from .audit import AuditLog
 from .config import Config, get_config
 from .discover import discover, load_fixture_markets
@@ -79,6 +79,7 @@ class Pipeline:
     # ------------------------------------------------------------ discover + judge
     def scan(self, venues: list[str] = ("polymarket", "kalshi", "predictit")) -> list[Case]:
         markets = discover(self.adapter, list(venues), self.cfg.excluded_categories, self.cfg.kalshi_member)
+        markets = [m for m in markets if m.venue != "manifold"]  # play money: signal only, never a leg
         self.audit.append("discover", {"venues": list(venues), "n_markets": len(markets), "core": self.adapter.name})
         return self.judge_candidates(markets)
 
@@ -90,6 +91,18 @@ class Pipeline:
         for jp, (_, _, sim) in zip(judged, triples):
             out.append(self._register(jp, sim))
         return out
+
+    def check_lines(self, line_a: str, line_b: str) -> tuple[Case | None, list[str]]:
+        """Links or words for two events -> matched through the core's registry -> judged pair."""
+        found, notes = [], []
+        for line in (line_a, line_b):
+            ms = self.adapter.resolve(line)
+            notes += getattr(self.adapter, "last_notes", [])
+            found.append(next((m for m in ms if m.venue != "manifold"), None))
+        if not all(found):
+            return None, notes or ["Could not match both inputs to an open market."]
+        self.audit.append("resolve", {"inputs": [line_a, line_b], "matched": [f"{m.venue}:{m.id}" for m in found]})
+        return self.check_pair(*found), notes
 
     def check_pair(self, a: Market, b: Market) -> Case:
         """User-entered pair: always shown for review, even if the judge says unrelated."""
@@ -126,7 +139,14 @@ class Pipeline:
             raise ValueError("A confirmed relation must be a logical link; reject the pair instead.")
         if case.rules is None or final != proposed:  # rules are judged relative to the relation
             case.rules = compare_rules(self.llm, self.cfg.rules_model, case.judged.a, case.judged.b, self.adapter, final)
-        rel = Relation(pair_id=case.id, relation=final, legs=[case.judged.a, case.judged.b], confirmed_by=user, note=note)
+        v = case.judged.verdict
+        rel = Relation(
+            pair_id=case.id, relation=final, legs=[case.judged.a, case.judged.b], confirmed_by=user, note=note,
+            proposed=proposed, confidence=v.confidence, edited=final != proposed,
+            evidence_a=v.evidence_a, evidence_b=v.evidence_b, evidence_verified=case.judged.verified,
+            rule_differences=case.rules.diff.differences if case.rules else [],
+            rules_verified=not (case.rules and case.rules.unverified_quotes),
+        )
         case.relation = rel
         self.labels.add(case.id, case.judged.a, case.judged.b, final, True, note, proposed)
         self._move(case, "confirmed", by=user, relation=final, proposed=proposed, edited=final != proposed)
@@ -141,21 +161,22 @@ class Pipeline:
         self._move(case, "rejected", by=user, note=note)
 
     # ------------------------------------------------------------ core + narrate
-    def price(self, case_id: str, size: float) -> CoreResult | None:
+    def price(self, case_id: str, budget: float) -> CoreResult | None:
+        """budget = the core guard's per-trade exposure cap in dollars."""
         case = self.cases[case_id]
         if case.state != "confirmed" or case.relation is None:
             raise TransitionError("Only a human-confirmed relation can be priced.")
         try:
-            core = self.adapter.price(case.relation, size)
+            core = self.adapter.price(case.relation, budget)
         except Exception as e:
             case.error = f"{type(e).__name__}: {e}"
             self._move(case, "error", error=case.error)
             return None
-        # Rule differences may only make a trade less likely.
-        if case.rules and case.rules.diff.overall == "incompatible" and core.verdict in ("worth_a_look", "look_closely"):
-            core = core.model_copy(update={"verdict": "blocked", "flags": core.flags + ["frame_rules_incompatible"]})
+        # Rule differences may only make a trade less likely (the core already blocks on high flags).
+        if case.rules and case.rules.diff.overall == "incompatible":
+            core = tighten(core, "blocked", "frame_rules_incompatible")
         case.core = core
-        self.audit.append("core_call", {"case": case_id, "size": size, "adapter": self.adapter.name,
+        self.audit.append("core_call", {"case": case_id, "budget": budget, "adapter": self.adapter.name,
                                         "relation": case.relation.model_dump(mode="json"), "result": core.model_dump()})
         self._move(case, "priced", core_version=core.core_version, verdict=core.verdict)
         case.narrated = narrate(self.llm, self.cfg.narrate_model, core, case.relation, case.rules)
@@ -171,15 +192,19 @@ class Pipeline:
         self._move(case, decision, by=user, note=note, paper_only=True)
 
 
-def build(replay: bool = False, cfg: Config | None = None, llm: LLMClient | None = None,
+def build(replay: bool = False, demo: bool = False, cfg: Config | None = None, llm: LLMClient | None = None,
           adapter: CoreAdapter | None = None) -> Pipeline:
     cfg = cfg or get_config()
-    if replay:  # fixtures are illustrative SAMPLE data, not Kalshi data, so the member gate does not apply
+    """replay: recorded LLM outputs, no key or network. demo: arbcheck's invented market universe.
+    replay implies demo. Neither: live venues through arbcheck's compliant client + live Gemini."""
+    demo = demo or replay
+    if demo:  # invented markets, not Kalshi data, so the member gate does not apply
         cfg = replace(cfg, kalshi_member=True)
     audit = AuditLog(cfg.audit_path)
-    fixtures = cfg.fixtures_dir / "markets.json"
-    markets = load_fixture_markets(fixtures) if fixtures.exists() else []
-    adapter = adapter or get_adapter("fake" if replay else cfg.core, markets)
+    if adapter is None:
+        fixtures = cfg.fixtures_dir / "markets.json"
+        markets = load_fixture_markets(fixtures) if cfg.core == "fake" and fixtures.exists() else None
+        adapter = get_adapter(cfg.core, demo=demo, kalshi_member=cfg.kalshi_member, markets=markets)
     llm = llm or make_llm(cfg, audit, replay)
     embedder = cand.HashingEmbedder() if (replay or os.getenv("FRAME_EMBEDDER") == "hashing") else cand.default_embedder()
     return Pipeline(cfg, llm, adapter, audit, LabelStore(cfg.labels_path), embedder)

@@ -1,4 +1,4 @@
-"""Write data/frame/fixtures/llm_replay.json: hand-authored LLM outputs for the offline demo.
+"""Write data/frame/fixtures/llm_replay_sample.json: hand-authored LLM outputs for the offline demo.
 
 These are NOT model outputs; they stand in for Gemini so `--replay` runs with no key or network.
 Keys are "<call>:<pair_id>", so they follow the fixture texts. Re-run after editing markets.json.
@@ -77,5 +77,5 @@ replay = {
         "recommendation": "review",
     },
 }
-(FX / "llm_replay.json").write_text(json.dumps(replay, indent=2), encoding="utf-8")
+(FX / "llm_replay_sample.json").write_text(json.dumps(replay, indent=2), encoding="utf-8")
 print(f"wrote {len(replay)} replay entries")

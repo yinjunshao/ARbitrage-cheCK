@@ -29,8 +29,8 @@ class Config:
     temperature: float = float(os.getenv("FRAME_TEMPERATURE", "0.1"))
     max_output_tokens: int = int(os.getenv("FRAME_MAX_TOKENS", "4096"))
 
-    # "fake" = fixed placeholder results (default until the core lands); "real" = import the core.
-    core: str = os.getenv("FRAME_CORE", "fake")
+    # "arbcheck" = the real numeric core in arbcheck-project/ ; "fake" = fixed placeholders (unit tests).
+    core: str = os.getenv("FRAME_CORE", "arbcheck")
     kalshi_member: bool = os.getenv("FRAME_KALSHI_MEMBER", "0") == "1"
 
     top_k: int = int(os.getenv("FRAME_TOP_K", "8"))
@@ -44,6 +44,8 @@ class Config:
     labels_path: Path = DATA / "labels.jsonl"
     cache_dir: Path = DATA / "cache"
     fixtures_dir: Path = DATA / "fixtures"
+    # recorded Gemini outputs on arbcheck's demo universe (scripts/record_replay.py)
+    replay_file: Path = DATA / "fixtures" / "llm_replay.json"
 
 
 def get_config() -> Config:

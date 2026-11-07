@@ -1,7 +1,8 @@
 """NiceGUI app: Check · Candidates · Result · Log.  Paper only. No orders are placed.
 
-    python -m app_frame.main --replay     # offline: fixtures + recorded LLM outputs + fake core
-    python -m app_frame.main              # live Gemini (GEMINI_API_KEY) + FRAME_CORE (fake|real)
+    python -m app_frame.main --replay   # offline: arbcheck demo markets + recorded Gemini outputs
+    python -m app_frame.main --demo     # arbcheck demo markets + live Gemini (GEMINI_API_KEY)
+    python -m app_frame.main --live     # live Polymarket/Manifold via arbcheck's read-only client + live Gemini
 """
 from __future__ import annotations
 
@@ -19,73 +20,97 @@ from frame.schemas import Market  # noqa: E402
 RELATIONS = ["same_event", "a_implies_b", "b_implies_a", "mutually_exclusive", "exhaustive_set"]
 USER = "analyst"
 P: Pipeline | None = None
+MODE = "demo"
+VERDICT_STYLE = {"worth_a_look": "bg-green-100 text-green-900", "look_closely": "bg-amber-100 text-amber-900",
+                 "blocked": "bg-red-100 text-red-900", "nothing_to_do": "bg-slate-100 text-slate-800"}
+
+
+def cents(x: float) -> str:
+    return f"{x * 100:.1f}¢"
 
 
 def banner():
     ui.query("body").style("background:#f8fafc;color:#0f172a")
     with ui.header().classes("items-center bg-slate-800"):
-        ui.label("False-Arb Checker · LLM frame").classes("text-lg font-bold")
+        ui.label("False-Arb Checker").classes("text-lg font-bold")
         for path, name in (("/", "Check"), ("/candidates", "Candidates"), ("/log", "Log")):
             ui.link(name, path).classes("text-white ml-4")
-    with ui.row().classes("w-full bg-amber-200 text-black p-2"):
+    with ui.row().classes("w-full bg-amber-200 text-black p-2 gap-4"):
         ui.label("PAPER ONLY. No orders are placed.").classes("font-bold")
         if P.adapter.name == "fake":
-            ui.label("FAKE CORE: numbers are placeholders, not computed from prices.").classes("text-red-700 font-bold")
-        ui.label(f"LLM: {getattr(P.llm, 'name', '?')} · judge model: {P.cfg.judge_model} · core: {P.adapter.name}")
+            ui.label("FAKE CORE: placeholder numbers.").classes("text-red-700 font-bold")
+        if getattr(P.adapter, "demo", False):
+            ui.label("DEMO MARKETS: every market and price is invented.").classes("text-red-700 font-bold")
+        ui.label(f"mode {MODE} · LLM {getattr(P.llm, 'name', '?')} ({P.cfg.judge_model}) · core {P.adapter.name}")
 
 
 def market_card(m: Market, quotes: list[str]):
     with ui.card().classes("w-[48%]"):
         ui.label(f"{m.venue.upper()} · {m.title}").classes("font-bold")
-        ui.label(f"closes {m.close_time_utc or '?'} · Yes {m.yes_bid}/{m.yes_ask}").classes("text-xs text-gray-500")
+        ui.label(f"closes {m.close_time_utc or '?'} · Yes bid/ask {m.yes_bid}/{m.yes_ask}").classes("text-xs text-gray-500")
         text = m.rules_text or "(no rules text)"
         for q in quotes:  # highlight verified quotes
-            text = text.replace(q, f"**{q}**")
+            if q and q in text:
+                text = text.replace(q, f"**{q}**")
         ui.markdown(text).classes("text-sm")
 
 
 @ui.page("/")
 def check_page():
     banner()
-    with ui.column().classes("p-4 w-full"):
+    with ui.column().classes("p-4 w-full max-w-5xl"):
         ui.label("Proactive scan").classes("text-xl")
-        ui.button("Scan venues for related markets", on_click=lambda: (P.scan(), ui.navigate.to("/candidates")))
+        ui.label("Pull open markets, find related pairs, let Gemini judge them, then you confirm.").classes("text-sm")
+        status = ui.label("")
+
+        async def scan():
+            status.set_text("Scanning… (live LLM calls can take a minute)")
+            from nicegui import run
+            await run.io_bound(P.scan, ["polymarket", "kalshi", "manifold"])
+            ui.navigate.to("/candidates")
+
+        ui.button("Scan venues for related markets", on_click=scan)
         ui.separator()
-        ui.label("Check a pair: paste two links, or enter both markets by hand").classes("text-xl")
-        l1, l2 = ui.input("Link A").classes("w-full"), ui.input("Link B").classes("w-full")
+        ui.label("Check a pair: paste two links or describe two events").classes("text-xl")
+        l1, l2 = ui.input("Event A (link or words)").classes("w-full"), ui.input("Event B (link or words)").classes("w-full")
+        if getattr(P.adapter, "demo", False):
+            ui.label("Demo links: https://polymarket.example/demo/zephyr-rate-cut · "
+                     "https://kalshi.example/demo/KXZEPHYR-26DEC").classes("text-xs text-gray-500")
         manual = {}
-        with ui.expansion("Manual entry"):
+        with ui.expansion("Or enter both markets by hand"):
             with ui.row().classes("w-full"):
                 for side in ("A", "B"):
                     with ui.column().classes("w-[48%]"):
                         manual[side] = {
-                            "venue": ui.select(["polymarket", "kalshi", "predictit", "manual"], value="manual", label=f"{side} venue"),
-                            "title": ui.input(f"{side} title"), "rules": ui.textarea(f"{side} rules text"),
-                            "close": ui.input(f"{side} close (ISO UTC)"),
-                            "ask": ui.number(f"{side} Yes ask", format="%.3f"), "bid": ui.number(f"{side} Yes bid", format="%.3f"),
+                            "venue": ui.select(["polymarket", "kalshi", "manual"], value="manual", label=f"{side} venue"),
+                            "title": ui.input(f"{side} question"), "rules": ui.textarea(f"{side} rules text"),
+                            "close": ui.input(f"{side} close (ISO UTC, e.g. 2027-03-31T23:59:00Z)"),
+                            "bid": ui.number(f"{side} Yes bid", format="%.3f"), "ask": ui.number(f"{side} Yes ask", format="%.3f"),
+                            "depth": ui.number(f"{side} shares at the ask", value=100),
                         }
 
-        def run():
+        async def run_check():
+            from nicegui import run
             if l1.value and l2.value:
-                try:
-                    a, b = P.adapter.parse_link(l1.value), P.adapter.parse_link(l2.value)
-                except Exception as e:
-                    ui.notify(f"Link parsing needs the core: {e}", type="negative"); return
-                if not a or not b:
-                    ui.notify("Link not recognised (only Polymarket/Kalshi/Manifold links).", type="warning"); return
+                case, notes = await run.io_bound(P.check_lines, l1.value, l2.value)
+                if case is None:
+                    ui.notify(" ".join(notes), type="warning", multi_line=True)
+                    return
             else:
                 def mk(s):
                     f = manual[s]
-                    return Market(venue=f["venue"].value, id=f"manual-{s}-{abs(hash(f['title'].value))}",
+                    return Market(venue=f["venue"].value, id=f"manual-{s}-{abs(hash((f['title'].value, f['close'].value)))}",
                                   title=f["title"].value or "", rules_text=f["rules"].value or "",
-                                  close_time_utc=f["close"].value or None, yes_ask=f["ask"].value, yes_bid=f["bid"].value)
+                                  close_time_utc=f["close"].value or None, yes_ask=f["ask"].value,
+                                  yes_bid=f["bid"].value, depth=f["depth"].value)
                 a, b = mk("A"), mk("B")
                 if not a.title or not b.title:
-                    ui.notify("Enter both titles.", type="warning"); return
-            case = P.check_pair(a, b)
-            ui.navigate.to(f"/candidates#{case.id}")
+                    ui.notify("Enter both questions (or two links).", type="warning")
+                    return
+                case = await run.io_bound(P.check_pair, a, b)
+            ui.navigate.to("/candidates")
 
-        ui.button("Check this pair", on_click=run)
+        ui.button("Check this pair", on_click=run_check)
 
 
 @ui.page("/candidates")
@@ -95,6 +120,11 @@ def candidates_page():
         queue = P.review_queue()
         hidden = sum(1 for c in P.cases.values() if c.state == "filtered")
         ui.label(f"{len(queue)} candidate(s) awaiting confirmation · {hidden} filtered as unrelated/unclear/low confidence")
+        done = [c for c in P.cases.values() if c.core is not None]
+        if done:
+            with ui.row():
+                for c in done:
+                    ui.link(f"{c.judged.a.title[:40]} → {c.core.verdict}", f"/result/{c.id}").classes("text-sm mr-4")
         for c in queue:
             v = c.judged.verdict
             with ui.card().classes("w-full"):
@@ -112,17 +142,19 @@ def candidates_page():
                                     f"  A: _{d.quote_a or '(silent)'}_{ok(d.quote_a)}  \n  B: _{d.quote_b or '(silent)'}_{ok(d.quote_b)}")
                 with ui.row().classes("items-center"):
                     rel = ui.select(RELATIONS, value=v.relation if v.relation in RELATIONS else None, label="Relation")
-                    size = ui.number("Size (contracts)", value=100)
+                    budget = ui.number("Max notional ($)", value=300)
                     note = ui.input("Note")
 
-                    def confirm(c=c, rel=rel, size=size, note=note):
+                    async def confirm(c=c, rel=rel, budget=budget, note=note):
+                        from nicegui import run
                         if not rel.value:
-                            ui.notify("Pick a relation or reject.", type="warning"); return
+                            ui.notify("Pick a relation or reject.", type="warning")
+                            return
                         P.confirm(c.id, USER, rel.value, note.value or "")
-                        P.price(c.id, float(size.value or 0))
+                        await run.io_bound(P.price, c.id, float(budget.value or 0))
                         ui.navigate.to(f"/result/{c.id}")
 
-                    ui.button("Confirm & price", on_click=confirm)
+                    ui.button("Confirm & price with core", on_click=confirm)
                     ui.button("Reject", color="red",
                               on_click=lambda c=c, note=note: (P.reject(c.id, USER, note.value or ""), ui.navigate.reload()))
 
@@ -131,24 +163,49 @@ def candidates_page():
 def result_page(case_id: str):
     banner()
     c = P.cases.get(case_id)
-    with ui.column().classes("p-4 w-full"):
+    with ui.column().classes("p-4 w-full max-w-5xl"):
         if c is None:
-            ui.label("Unknown case."); return
+            ui.label("Unknown case.")
+            return
         if c.state == "error":
-            ui.label(f"Core call failed: {c.error}").classes("text-red-700"); return
+            ui.label(f"Core call failed: {c.error}").classes("text-red-700")
+            return
         core, n = c.core, c.narrated
-        ui.label(f"CORE VERDICT: {core.verdict.replace('_', ' ').upper()}").classes("text-2xl font-bold")
-        ui.label(f"core_version {core.core_version} · flags: {', '.join(core.flags) or 'none'}")
-        rows = [{"field": k, "value": str(v)} for k, v in core.model_dump().items() if k not in ("guard_checks", "flags")]
-        ui.table(columns=[{"name": "field", "label": "Core field", "field": "field"},
-                          {"name": "value", "label": "Value", "field": "value"}], rows=rows).classes("w-[600px]")
+        with ui.card().classes(f"w-full {VERDICT_STYLE[core.verdict]}"):
+            ui.label(f"CORE VERDICT: {core.verdict.replace('_', ' ').upper()}  ({core.status})").classes("text-2xl font-bold")
+            ui.label(core.headline).classes("text-lg")
+            ui.label(f"{c.relation.relation} → core kind {core.kind} · {core.core_version} · flags: "
+                     f"{', '.join(core.flags) or 'none'}").classes("text-sm")
+        with ui.row().classes("w-full gap-8"):
+            with ui.column():
+                ui.label("Where the edge goes (per share)").classes("font-bold")
+                for label, val in (("Price-only scanner (mid)", core.naive_edge), ("At best asks, before fees", core.top_edge),
+                                   ("Whole fillable book, after depth and fees", core.avg_edge),
+                                   ("Guard-approved size, after fees and rule-risk haircut", core.risk_adj_edge)):
+                    ui.label(f"{label}: {cents(val)}")
+                ui.label(f"Haircut {cents(core.haircut_per_share)} · basket floor ${core.floor:.0f} · legs {', '.join(core.legs) or '-'}")
+            with ui.column():
+                ui.label("Sizing (guard-approved)").classes("font-bold")
+                ui.label(f"{core.approved_shares:,.0f} shares · cost ${core.approved_cost:,.2f} · profit ${core.approved_profit:,.2f}"
+                         + (" (clipped to cap)" if core.clipped else ""))
+                ui.label(f"Book allows {core.shares:,.0f} shares · fees ${core.fee_cost:,.2f} · {core.days:.0f} days · "
+                         f"risk-adj. annualised {core.risk_adj_ann:.0%}")
+                for leg, fee in core.fees.items():
+                    ui.label(f"{leg}: {fee}").classes("text-xs text-gray-600")
         ui.label("Guard checks").classes("font-bold mt-2")
-        for g in core.guard_checks:
-            ui.label(f"{'✓' if g.passed else '✗'} {g.name} {g.detail}")
+        icon = {"pass": "✓", "warn": "!", "fail": "✗", "na": "–"}
+        for g in core.checks:
+            ui.label(f"{icon[g.status]} {g.name}: {g.detail}").classes("text-sm")
+        if core.scenarios:
+            ui.label("Payoff in every still-possible world (per basket share)").classes("font-bold mt-2")
+            ui.table(columns=[{"name": k, "label": k, "field": k} for k in ("world", "payout", "profit")],
+                     rows=[{"world": str(s["world"]), "payout": f"${s['payout']}", "profit": cents(s["profit"])}
+                           for s in core.scenarios])
         ui.separator()
-        ui.label(f"Narrative ({n.source}; {'grounded' if n.grounded else 'NOT grounded'})").classes("font-bold")
+        ui.label(f"Explanation ({n.source}; {'every number traced to the core' if n.grounded else 'NOT grounded'})").classes("font-bold")
         if n.ungrounded_numbers:
-            ui.label(f"LLM draft rejected for invented numbers: {n.ungrounded_numbers}; showing template.").classes("text-orange-700")
+            ui.label(f"Gemini draft rejected for numbers not in the core result: {n.ungrounded_numbers}; showing template."
+                     ).classes("text-orange-700")
         ui.label(n.narrative.headline).classes("text-lg")
         ui.label(n.narrative.why_gap)
         ui.markdown("**What could go wrong**\n" + "\n".join(f"- {x}" for x in n.narrative.what_could_go_wrong))
@@ -156,9 +213,8 @@ def result_page(case_id: str):
         ui.label(f"Suggested: {n.narrative.recommendation}")
         if c.state in ("narrated", "review"):
             with ui.row():
-                blocked = core.verdict in ("blocked", "nothing_to_do")
                 b = ui.button("Approve (paper)", on_click=lambda: (P.decide(case_id, "approved", USER), ui.navigate.reload()))
-                if blocked:
+                if core.verdict in ("blocked", "nothing_to_do"):
                     b.disable()
                 ui.button("Review later", on_click=lambda: (P.decide(case_id, "review", USER), ui.navigate.reload()))
                 ui.button("Kill", color="red", on_click=lambda: (P.decide(case_id, "killed", USER), ui.navigate.reload()))
@@ -181,13 +237,24 @@ def log_page():
 
 
 def main():
-    global P
+    global P, MODE
     ap = argparse.ArgumentParser()
-    ap.add_argument("--replay", action="store_true", help="offline: fixtures, recorded LLM outputs, fake core")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--replay", action="store_true", help="offline: demo markets + recorded Gemini outputs")
+    g.add_argument("--demo", action="store_true", help="demo markets + live Gemini (default)")
+    g.add_argument("--live", action="store_true", help="live venues via arbcheck's read-only client + live Gemini")
+    ap.add_argument("--kalshi-member", action="store_true", help="I am a Kalshi member running this on my own computer")
     ap.add_argument("--port", type=int, default=8080)
     args, _ = ap.parse_known_args()
-    P = build(replay=args.replay)
-    ui.run(title="False-Arb Checker", port=args.port, reload=False, show=False, dark=False)
+    from dataclasses import replace
+
+    from frame.config import get_config
+    cfg = get_config()
+    if args.kalshi_member:
+        cfg = replace(cfg, kalshi_member=True)
+    MODE = "replay" if args.replay else "live" if args.live else "demo"
+    P = build(replay=args.replay, demo=not args.live, cfg=cfg)
+    ui.run(title="False-Arb Checker", port=args.port, host="127.0.0.1", reload=False, show=False, dark=False)
 
 
 if __name__ in {"__main__", "__mp_main__"}:

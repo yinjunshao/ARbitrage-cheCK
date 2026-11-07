@@ -34,6 +34,7 @@ class Market(BaseModel):
     yes_ask: float | None = None
     no_bid: float | None = None
     no_ask: float | None = None
+    depth: float | None = None  # manual entry only: shares available at the quoted ask
     url: str | None = None
 
 
@@ -87,35 +88,61 @@ class VerifiedRuleDiff(BaseModel):
 
 
 class Relation(BaseModel):
-    """Built by code AFTER a human confirms. This is the only thing the core sees."""
+    """Built by code AFTER a human confirms. This is the only thing the core sees
+    (the adapter translates it into the core's own Relation)."""
     pair_id: str
     relation: RelationType
     legs: list[Market]
     confirmed_by: str
     note: str = ""
+    proposed: RelationType | None = None        # what the LLM judge said
+    confidence: Confidence | None = None        # the judge's confidence
+    edited: bool = False                        # human changed the relation
+    evidence_a: list[str] = []                  # verified spans backing the relation
+    evidence_b: list[str] = []
+    evidence_verified: bool = False
+    rule_differences: list[RuleDifference] = []
+    rules_verified: bool = True                 # every rule-diff quote found verbatim
 
 
-class GuardCheck(BaseModel):
+class CoreCheck(BaseModel):
     name: str
-    passed: bool
+    status: Literal["pass", "warn", "fail", "na"]
     detail: str = ""
 
 
 class CoreResult(BaseModel):
+    """The core's priced verdict, flattened. Numbers here are the ONLY numbers narrate may use.
+
+    Units (arbcheck): prices and edges are dollars per share (0.01 = 1 cent); ret/ann_ret are fractions.
+    """
     verdict: CoreVerdict
-    gross_edge: float
-    fees: dict[str, float] = {}
-    slippage: float = 0.0
-    net_edge: float
-    max_fillable_size: float
-    days_to_resolution: float | None = None
-    annualised_return: float | None = None
-    worst_case: float | None = None
-    ci_low: float | None = None
-    ci_high: float | None = None
-    book_age_s: float | None = None
-    flags: list[str] = []
-    guard_checks: list[GuardCheck] = []
+    status: str                 # raw guard status: OK | WARN | BLOCKED | NO_ARB
+    headline: str               # the guard's own sentence
+    kind: str                   # core relation kind
+    legs: list[str] = []        # e.g. ["A YES", "B NO"]
+    floor: float = 0.0
+    naive_edge: float = 0.0     # mid prices, no depth, no fees: what a price-only scanner sees
+    top_edge: float = 0.0       # best asks, before fees
+    avg_edge: float = 0.0       # over real fills, after fees
+    shares: float = 0.0
+    cost: float = 0.0
+    fee_cost: float = 0.0
+    net_profit: float = 0.0
+    ret: float = 0.0
+    ann_ret: float = 0.0
+    days: float = 0.0
+    approved_shares: float = 0.0
+    approved_cost: float = 0.0
+    approved_profit: float = 0.0
+    haircut_per_share: float = 0.0
+    risk_adj_edge: float = 0.0
+    risk_adj_ann: float = 0.0
+    clipped: bool = False
+    checks: list[CoreCheck] = []
+    flags: list[str] = []       # "kind:severity" of every mismatch flag the core saw
+    fees: dict[str, str] = {}   # leg -> fee model
+    scenarios: list[dict] = []  # per still-possible world: payout and profit per share
     core_version: str
 
 

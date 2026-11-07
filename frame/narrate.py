@@ -9,8 +9,11 @@ from .schemas import CoreResult, NarratedResult, Narrative, Relation, VerifiedRu
 
 SYSTEM = """You explain a prediction-market arbitrage check to a trader. You receive the numeric core's result
 as JSON and verified rule quotes. You did not compute anything and must not compute anything.
+Units: prices and edges are dollars per share (0.021 = 2.1 cents); ret, ann_ret, risk_adj_ann are fractions
+(0.142 = 14.2%); cost, fee_cost, net_profit, approved_* are dollars. naive_edge is what a price-only scanner sees;
+avg_edge is after spreads, depth and fees; risk_adj_edge is after the rule-risk haircut.
 Rules:
-1. Every number you write must appear in the CORE RESULT JSON (you may show a fraction like 0.021 as 2.1%).
+1. Every number you write must appear in the CORE RESULT JSON (you may show 0.021 as 2.1¢ or 2.1%).
    Do not add, subtract, multiply, annualise or round to new precision. If unsure, write the field name instead.
 2. Do not write dates, counts or amounts that are not in the JSON. Prefer words over numerals.
 3. Lead with the core verdict. Your recommendation can be the same as or MORE cautious than the core, never less:
@@ -29,20 +32,30 @@ def clamp_recommendation(n: Narrative, core: CoreResult) -> Narrative:
     return n
 
 
+def _rounded(obj):
+    if isinstance(obj, float):
+        return round(obj, 4)
+    if isinstance(obj, dict):
+        return {k: _rounded(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rounded(v) for v in obj]
+    return obj
+
+
 def _text(n: Narrative) -> str:
     return "\n".join([n.headline, n.why_gap, *n.what_could_go_wrong, *n.human_checks])
 
 
 def template(core: CoreResult, rel: Relation, rules: VerifiedRuleDiff | None) -> Narrative:
     """Deterministic fallback. Uses core values verbatim."""
-    pct = lambda x: "n/a" if x is None else f"{x * 100:.1f}%"
+    cents = lambda x: f"{x * 100:.1f}¢"
     risks = [f"Core flag: {f}" for f in core.flags]
     if rules:
         risks += [f"Rule difference ({d.topic}, {d.severity}): {d.explanation}" for d in rules.diff.differences]
-    risks += [f"Guard check failed: {g.name} {g.detail}".strip() for g in core.guard_checks if not g.passed]
+    risks += [f"Guard check {g.status}: {g.name}: {g.detail}" for g in core.checks if g.status in ("fail", "warn")]
     return Narrative(
-        headline=f"Core verdict: {core.verdict.replace('_', ' ')}. Net edge {pct(core.net_edge)} "
-                 f"(gross {pct(core.gross_edge)}).",
+        headline=f"Core verdict: {core.verdict.replace('_', ' ')}. {core.headline} Price-only gap "
+                 f"{cents(core.naive_edge)}, after costs {cents(core.avg_edge)} per share.",
         why_gap=f"Confirmed relation '{rel.relation}' across {', '.join(sorted({l.venue for l in rel.legs}))}; "
                 f"the core priced the legs against their order books.",
         what_could_go_wrong=risks or ["No flags raised by the core."],
@@ -60,7 +73,8 @@ def narrate(llm: LLMClient, model: str, core: CoreResult, rel: Relation,
     payload = {
         "relation": rel.relation,
         "legs": [{"venue": l.venue, "title": l.title} for l in rel.legs],
-        "core_result": core.model_dump(),
+        # Rounded for readability only; grounding still checks against the core's exact values.
+        "core_result": _rounded(core.model_dump()),
         "rule_differences": [d.model_dump() for d in rules.diff.differences] if rules else [],
     }
     user = "CORE RESULT JSON and context:\n" + json.dumps(payload, indent=2)

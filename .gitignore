@@ -7,3 +7,5 @@ __pycache__/
 data/frame/audit.jsonl
 data/frame/labels.jsonl
 data/frame/cache/
+data/frame/core_decisions.jsonl
+arbcheck-project/report.html

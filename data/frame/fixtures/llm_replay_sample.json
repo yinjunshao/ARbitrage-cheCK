@@ -1,0 +1,89 @@
+{
+  "judge_pair:772d56bc8fbddcda": {
+    "relation": "same_event",
+    "confidence": "medium",
+    "reasoning": "Both resolve on whether the Fed lowers its target at the December 2026 meeting. A defines Yes as an announced cut; B as a lower upper bound. Close times differ slightly.",
+    "evidence_a": [
+      "announces a cut to the target federal funds rate at its December 2026 FOMC meeting"
+    ],
+    "evidence_b": [
+      "the upper bound of the federal funds target range announced after the Federal Reserve's December 2026 meeting is lower"
+    ]
+  },
+  "compare_rules:772d56bc8fbddcda": {
+    "overall": "material_differences",
+    "differences": [
+      {
+        "topic": "yes_definition",
+        "severity": "material",
+        "quote_a": "announces a cut to the target federal funds rate",
+        "quote_b": "the upper bound of the federal funds target range announced after the Federal Reserve's December 2026 meeting is lower than the upper bound in effect immediately before that meeting",
+        "explanation": "A counts any announced cut; B needs the upper bound to fall. A cut to only the lower bound would split them."
+      },
+      {
+        "topic": "data_source",
+        "severity": "cosmetic",
+        "quote_a": "the official FOMC statement published on federalreserve.gov",
+        "quote_b": "Source: Federal Reserve Board press release.",
+        "explanation": "Both are Federal Reserve publications."
+      },
+      {
+        "topic": "deadline",
+        "severity": "material",
+        "quote_a": "If no FOMC meeting is held by December 31, 2026, 11:59 PM ET, this market will resolve to \"No\".",
+        "quote_b": "",
+        "explanation": "A has a no-meeting fallback; B is silent if the meeting is moved."
+      }
+    ]
+  },
+  "judge_pair:f98501913bfc54cf": {
+    "relation": "a_implies_b",
+    "confidence": "high",
+    "reasoning": "Same event group with nested deadlines: an election called by the earlier date is also called by the later date.",
+    "evidence_a": [
+      "between market creation and March 31, 2027, 11:59 PM GMT"
+    ],
+    "evidence_b": [
+      "between market creation and June 30, 2027, 11:59 PM BST"
+    ]
+  },
+  "compare_rules:f98501913bfc54cf": {
+    "overall": "compatible",
+    "differences": [
+      {
+        "topic": "time_zone",
+        "severity": "cosmetic",
+        "quote_a": "11:59 PM GMT",
+        "quote_b": "11:59 PM BST",
+        "explanation": "Each deadline is stated in the UK clock in force on that date."
+      }
+    ]
+  },
+  "narrate:772d56bc8fbddcda": {
+    "headline": "Look closely: the core finds a 2.1% net edge (4.2% gross) on the December Fed cut, but rules differ.",
+    "why_gap": "Kalshi and Polymarket price the same Fed decision differently; the core prices both legs against their books.",
+    "what_could_go_wrong": [
+      "Thin depth: the core caps fillable size at 850.",
+      "Yes is defined differently: a cut to only the lower bound would split the two markets.",
+      "Polymarket has a no-meeting fallback that Kalshi lacks.",
+      "These are placeholder numbers from the fake core."
+    ],
+    "human_checks": [
+      "Read both definitions of Yes side by side.",
+      "Confirm the meeting date has not moved."
+    ],
+    "recommendation": "review"
+  },
+  "narrate:f98501913bfc54cf": {
+    "headline": "Look closely: nested-deadline pair, core net edge 2.1%.",
+    "why_gap": "The earlier deadline implies the later one, so the earlier market should not trade above it.",
+    "what_could_go_wrong": [
+      "Thin depth flagged by the core.",
+      "These are placeholder numbers from the fake core."
+    ],
+    "human_checks": [
+      "Confirm both markets use the same definition of 'called'."
+    ],
+    "recommendation": "review"
+  }
+}

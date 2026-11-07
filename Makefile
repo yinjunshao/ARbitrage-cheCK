@@ -5,13 +5,14 @@ setup:
 	uv pip install --python $(PY) -r requirements-frame.txt
 
 test:
+	cd arbcheck-project && ../$(PY) -m pytest -q
 	$(PY) -m pytest tests/frame -q
 
 demo:
 	$(PY) -m app_frame.main --replay
 
 live:
-	$(PY) -m app_frame.main
+	$(PY) -m app_frame.main --live
 
-replay-fixtures:
-	$(PY) scripts/build_replay.py
+record-replay:
+	$(PY) scripts/record_replay.py

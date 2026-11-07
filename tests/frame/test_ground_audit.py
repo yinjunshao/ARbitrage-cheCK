@@ -4,8 +4,8 @@ from frame.schemas import CoreResult
 
 
 def core():
-    return CoreResult(verdict="look_closely", gross_edge=0.042, net_edge=0.021, max_fillable_size=850.0,
-                      annualised_return=0.142, fees={"kalshi": 0.011}, core_version="t")
+    return CoreResult(verdict="look_closely", status="WARN", headline="h", kind="equivalent", naive_edge=0.042,
+                      avg_edge=0.021, shares=850.0, ann_ret=0.142, core_version="t")
 
 
 def test_verify_span_exact_and_whitespace():
