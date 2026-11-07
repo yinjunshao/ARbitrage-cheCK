@@ -25,4 +25,5 @@ def cfg(tmp_path):
                    suggestions_path=tmp_path / "suggestions.jsonl", confirmed_path=tmp_path / "confirmed.jsonl",
                    min_similarity=0.0, top_k=8,
                    fixtures_dir=FIXTURES, replay_file=FIXTURES / "llm_replay_sample.json",
-                   core="fake", kalshi_member=True)
+                   core="fake", kalshi_member=True,
+                   max_days_to_close=36500, max_close_gap_days=36500)   # fixtures have fixed dates; R5/R6 tested on their own

@@ -190,11 +190,45 @@ def candidates_page():
                               on_click=lambda c=c, note=note: (P.reject(c.id, USER, note.value or ""), ui.navigate.reload()))
 
 
+VERDICT_WORDS = {
+    "worth_a_look": ("Worth a closer look", "The prices leave a gap that survives fees and the size you could actually trade."),
+    "look_closely": ("Possible gap, with risks to check", "There is a gap on paper, but something below could make it disappear."),
+    "blocked": ("Do not trade this", "A safety check failed, so the numbers can't be trusted as a risk-free gap."),
+    "nothing_to_do": ("No profit here", "After spreads and fees the two prices don't leave anything to capture."),
+}
+RELATION_WORDS = {
+    "equivalent": "are the same event", "same_event": "are the same event",
+    "a_implies_b": "(A happening forces B to happen)", "b_implies_a": "(B happening forces A to happen)",
+    "mutually_exclusive": "can't both happen", "exhaustive_set": "together cover every outcome",
+}
+
+
+def _money(x: float) -> str:
+    return f"${x:,.2f}" if abs(x) < 100 else f"${x:,.0f}"
+
+
+def _plain_facts(core) -> list[str]:
+    """The few numbers a person needs, in sentences. Every figure comes from the core result."""
+    if core.verdict == "nothing_to_do":
+        return [f"Buying both sides at today's asks leaves {cents(core.top_edge)} a share before fees "
+                f"and {cents(core.avg_edge)} after fees and depth. That is not a profit."]
+    if core.approved_shares <= 0:
+        return [f"On paper the gap is {cents(core.top_edge)} a share at the best asks and {cents(core.avg_edge)} after "
+                f"fees and depth, but the safety checks approved no size to trade. See the details below."]
+    facts = [f"Trading about {core.approved_shares:,.0f} shares would cost {_money(core.approved_cost)} "
+             f"and pay back roughly {_money(core.approved_profit)} more."]
+    facts.append(f"The money is tied up for about {core.days:.0f} days"
+                 + (f", which works out near {core.risk_adj_ann:.0%} a year after allowing for rule risk." if core.risk_adj_ann else "."))
+    if core.clipped:
+        facts.append("The size is capped by your risk limit, not by the market.")
+    return facts
+
+
 @ui.page("/result/{case_id}")
 def result_page(case_id: str):
     banner()
     c = P.cases.get(case_id)
-    with ui.column().classes("p-4 w-full max-w-5xl"):
+    with ui.column().classes("p-4 w-full max-w-4xl gap-3"):
         if c is None:
             ui.label("Unknown case.")
             return
@@ -202,55 +236,90 @@ def result_page(case_id: str):
             ui.label(f"Core call failed: {c.error}").classes("text-red-700")
             return
         core, n = c.core, c.narrated
+        a, b = c.judged.a, c.judged.b
+        title, gist = VERDICT_WORDS.get(core.verdict, (core.verdict, ""))
+
+        # ---- the short report -------------------------------------------------------------------
         with ui.card().classes(f"w-full {VERDICT_STYLE[core.verdict]}"):
-            ui.label(f"CORE VERDICT: {core.verdict.replace('_', ' ').upper()}  ({core.status})").classes("text-2xl font-bold")
-            ui.label(core.headline).classes("text-lg")
-            ui.label(f"{c.relation.relation} → core kind {core.kind} · {core.core_version} · flags: "
-                     f"{', '.join(core.flags) or 'none'}").classes("text-sm")
-        with ui.row().classes("w-full gap-8"):
-            with ui.column():
-                ui.label("Where the edge goes (per share)").classes("font-bold")
-                for label, val in (("Price-only scanner (mid)", core.naive_edge), ("At best asks, before fees", core.top_edge),
-                                   ("Whole fillable book, after depth and fees", core.avg_edge),
-                                   ("Guard-approved size, after fees and rule-risk haircut", core.risk_adj_edge)):
-                    ui.label(f"{label}: {cents(val)}")
-                ui.label(f"Haircut {cents(core.haircut_per_share)} · basket floor ${core.floor:.0f} · legs {', '.join(core.legs) or '-'}")
-            with ui.column():
-                ui.label("Sizing (guard-approved)").classes("font-bold")
-                ui.label(f"{core.approved_shares:,.0f} shares · cost ${core.approved_cost:,.2f} · profit ${core.approved_profit:,.2f}"
-                         + (" (clipped to cap)" if core.clipped else ""))
-                ui.label(f"Book allows {core.shares:,.0f} shares · fees ${core.fee_cost:,.2f} · {core.days:.0f} days · "
-                         f"risk-adj. annualised {core.risk_adj_ann:.0%}")
-                for leg, fee in core.fees.items():
-                    ui.label(f"{leg}: {fee}").classes("text-xs text-gray-600")
-        ui.label("Guard checks").classes("font-bold mt-2")
-        icon = {"pass": "✓", "warn": "!", "fail": "✗", "na": "–"}
-        for g in core.checks:
-            ui.label(f"{icon[g.status]} {g.name}: {g.detail}").classes("text-sm")
-        if core.scenarios:
-            ui.label("Payoff in every still-possible world (per basket share)").classes("font-bold mt-2")
-            ui.table(columns=[{"name": k, "label": k, "field": k} for k in ("world", "payout", "profit")],
-                     rows=[{"world": str(s["world"]), "payout": f"${s['payout']}", "profit": cents(s["profit"])}
-                           for s in core.scenarios])
-        ui.separator()
-        ui.label(f"Explanation ({n.source}; {'every number traced to the core' if n.grounded else 'NOT grounded'})").classes("font-bold")
-        if n.ungrounded_numbers:
-            ui.label(f"Gemini draft rejected for numbers not in the core result: {n.ungrounded_numbers}; showing template."
-                     ).classes("text-orange-700")
-        ui.label(n.narrative.headline).classes("text-lg")
+            ui.label(title).classes("text-2xl font-bold")
+            ui.label(n.narrative.headline).classes("text-lg")
+            ui.label(gist).classes("text-sm")
+        ui.label(f"{a.venue.title()}: {a.title}").classes("text-sm")
+        ui.label(f"{b.venue.title()}: {b.title}").classes("text-sm")
+        ui.label(f"These {RELATION_WORDS.get(c.relation.relation, c.relation.relation.replace('_', ' '))}.").classes("text-xs text-gray-500")
+
+        ui.label("In short").classes("text-lg font-bold mt-2")
+        for line in _plain_facts(core):
+            ui.label(line)
+        ui.label("Why the gap exists").classes("font-bold mt-1")
         ui.label(n.narrative.why_gap)
-        ui.markdown("**What could go wrong**\n" + "\n".join(f"- {x}" for x in n.narrative.what_could_go_wrong))
-        ui.markdown("**Check before approving**\n" + "\n".join(f"- {x}" for x in n.narrative.human_checks))
-        ui.label(f"Suggested: {n.narrative.recommendation}")
+        if n.narrative.what_could_go_wrong:
+            ui.label("What could go wrong").classes("font-bold mt-1")
+            ui.markdown("\n".join(f"- {x}" for x in n.narrative.what_could_go_wrong[:3]))
+        ui.label("Check before approving").classes("font-bold mt-1")
+        ui.markdown("\n".join(f"- {x}" for x in n.narrative.human_checks[:4]))
+        ui.label(f"Suggested: {str(n.narrative.recommendation).replace('_', ' ')}").classes("font-bold")
+
         if c.state in ("narrated", "review"):
             with ui.row():
-                b = ui.button("Approve (paper)", on_click=lambda: (P.decide(case_id, "approved", USER), ui.navigate.reload()))
+                btn = ui.button("Approve (paper)", on_click=lambda: (P.decide(case_id, "approved", USER), ui.navigate.reload()))
                 if core.verdict in ("blocked", "nothing_to_do"):
-                    b.disable()
+                    btn.disable()
                 ui.button("Review later", on_click=lambda: (P.decide(case_id, "review", USER), ui.navigate.reload()))
                 ui.button("Kill", color="red", on_click=lambda: (P.decide(case_id, "killed", USER), ui.navigate.reload()))
         else:
-            ui.label(f"Decision: {c.state}")
+            ui.label(f"Decision: {c.state}").classes("font-bold")
+
+        # ---- the detailed statistical report: closed until the arrow is pressed ----------------------
+        with ui.expansion("Detailed report: statistics, checks and workings", icon="analytics").classes(
+                "w-full border rounded mt-3"):
+            ui.label(f"Core verdict {core.verdict.replace('_', ' ')} ({core.status}) · {core.headline}").classes("text-sm")
+            ui.label(f"Relation {c.relation.relation} → core kind {core.kind} · flags: {', '.join(core.flags) or 'none'} · "
+                     f"{core.core_version}").classes("text-xs text-gray-600")
+
+            ui.label("1 · Where the edge goes (per share)").classes("font-bold mt-3")
+            ui.table(columns=[{"name": k, "label": k, "field": k, "align": "left"} for k in ("stage", "edge")],
+                     rows=[{"stage": s, "edge": cents(v)} for s, v in (
+                         ("Price-only scanner (mid prices)", core.naive_edge),
+                         ("At best asks, before fees", core.top_edge),
+                         ("Whole fillable book, after depth and fees", core.avg_edge),
+                         ("Guard-approved size, after fees and rule-risk haircut", core.risk_adj_edge))]).props("dense flat")
+            ui.label(f"Rule-risk haircut {cents(core.haircut_per_share)} · basket floor ${core.floor:.0f} · "
+                     f"legs {', '.join(core.legs) or '-'}").classes("text-xs text-gray-600")
+
+            ui.label("2 · Size and cost").classes("font-bold mt-3")
+            ui.table(columns=[{"name": k, "label": k, "field": k, "align": "left"} for k in ("item", "value")],
+                     rows=[{"item": k, "value": v} for k, v in (
+                         ("Guard-approved shares", f"{core.approved_shares:,.0f}" + (" (clipped to cap)" if core.clipped else "")),
+                         ("Approved cost", f"${core.approved_cost:,.2f}"),
+                         ("Approved profit", f"${core.approved_profit:,.2f}"),
+                         ("Book allows", f"{core.shares:,.0f} shares"),
+                         ("Fees", f"${core.fee_cost:,.2f}"),
+                         ("Days to resolution", f"{core.days:.0f}"),
+                         ("Risk-adjusted annualised", f"{core.risk_adj_ann:.0%}"))]).props("dense flat")
+            for leg, fee in core.fees.items():
+                ui.label(f"{leg}: {fee}").classes("text-xs text-gray-600")
+
+            ui.label("3 · Guard checks").classes("font-bold mt-3")
+            icon = {"pass": "✓", "warn": "!", "fail": "✗", "na": "–"}
+            for g in core.checks:
+                ui.label(f"{icon[g.status]} {g.name}: {g.detail}").classes("text-sm")
+
+            if core.scenarios:
+                ui.label("4 · Payoff in every still-possible world (per basket share)").classes("font-bold mt-3")
+                ui.table(columns=[{"name": k, "label": k, "field": k, "align": "left"} for k in ("world", "payout", "profit")],
+                         rows=[{"world": str(s["world"]), "payout": f"${s['payout']}", "profit": cents(s["profit"])}
+                               for s in core.scenarios]).props("dense flat")
+
+            ui.label("5 · How the explanation was produced").classes("font-bold mt-3")
+            ui.label(f"Written by {n.source}; "
+                     f"{'every number traced back to the core result' if n.grounded else 'NOT grounded in the core result'}."
+                     ).classes("text-sm")
+            if n.ungrounded_numbers:
+                ui.label(f"Gemini draft rejected for numbers not in the core result: {n.ungrounded_numbers}; showing template."
+                         ).classes("text-orange-700 text-sm")
+            ui.label(f"Judged by Gemini: {c.judged.verdict.relation} ({c.judged.verdict.confidence}). "
+                     f"{c.judged.verdict.reasoning}").classes("text-sm")
 
 
 @ui.page("/suggestions")

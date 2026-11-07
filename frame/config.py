@@ -45,6 +45,9 @@ class Config:
     # Crypto is allowed, but only paired with crypto of the same coin (frame/rules.py).
     excluded_categories: tuple[str, ...] = ()
     monitor_every_s: int = int(os.getenv("FRAME_MONITOR_EVERY_S", "300"))
+    # Time rules R5/R6: only suggest pairs that resolve soon and at about the same time.
+    max_days_to_close: int = int(os.getenv("FRAME_MAX_DAYS_TO_CLOSE", "45"))
+    max_close_gap_days: int = int(os.getenv("FRAME_MAX_CLOSE_GAP_DAYS", "14"))
 
     audit_path: Path = DATA / "audit.jsonl"
     labels_path: Path = DATA / "labels.jsonl"

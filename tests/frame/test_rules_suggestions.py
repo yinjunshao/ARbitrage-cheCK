@@ -7,7 +7,13 @@ from frame.rules import check_pair
 from frame.schemas import Market
 
 
-def mk(i, title, cat, venue="polymarket", tags=None, close="2026-12-31T00:00:00Z", event=None):
+def _soon(days=10):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+
+def mk(i, title, cat, venue="polymarket", tags=None, close=None, event=None):
+    close = _soon() if close is None else (close or None)     # "" means: no closing date
     return Market(venue=venue, id=i, title=title, category=cat, tags=tags or [], close_time_utc=close,
                   event_id=event, rules_text=title)
 
@@ -45,6 +51,21 @@ def test_r3_same_type_r4_unknown_r1_manifold():
     assert check_pair(fed, unk).rule == "R4"
     assert check_pair(fed, mf).rule == "R1"
     assert check_pair(fed, mk("8", "Fed cuts by 50bps in December?", "economics", venue="kalshi")).ok
+
+
+def test_r5_r6_arbitrage_only_near_the_deadline_and_the_same_timeframe():
+    a = mk("1", "Fed cut in December?", "economics", close=_soon(10))
+    same = mk("2", "Fed cut at the December meeting?", "economics", venue="kalshi", close=_soon(11))
+    assert check_pair(a, same).ok
+    far_a = mk("3", "Fed cut in December 2026?", "economics", close=_soon(200))
+    far_b = mk("4", "Fed cut in December 2026?", "economics", venue="kalshi", close=_soon(200))
+    assert check_pair(far_a, far_b).rule == "R5"                         # identical question, but months from closing
+    next_year = mk("5", "Fed cut in December 2027?", "economics", close=_soon(10 + 365))
+    assert check_pair(a, next_year).rule == "R5"
+    later = mk("6", "Fed cut in January?", "economics", close=_soon(40))
+    assert check_pair(a, later).rule == "R6"                             # both soon, but a month apart
+    assert check_pair(a, mk("7", "x", "economics", close="")).rule == "R5"   # no date, cannot be shown near deadline
+    assert check_pair(a, later, horizon_days=60, gap_days=45).ok         # limits are settable
 
 
 def test_rule_refusals_logged_before_any_llm_call(cfg, monkeypatch):

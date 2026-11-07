@@ -32,6 +32,8 @@ invented markets exist only as test fixtures.
 | R2 | Crypto pairs only with crypto, and only the same coin (BTC with BTC) |
 | R3 | Both markets must be the same type (same category: economics, politics, sports, …) |
 | R4 | A category must be known on both sides; unknown is not assumed to match |
+| R5 | Both markets must close within 45 days (`FRAME_MAX_DAYS_TO_CLOSE`): arbitrage only works near the deadline, when prices are pinned by resolution and capital comes back quickly. A missing close date is refused |
+| R6 | The two must close within 14 days of each other (`FRAME_MAX_CLOSE_GAP_DAYS`): the same question over another timeframe or year is a different bet, not a price gap |
 
 Categories come from the venues themselves (Polymarket event tags, Kalshi event category), mapped to one
 vocabulary in `frame/categories.py`. Rules apply to **suggestions**. A pair you type in yourself is still

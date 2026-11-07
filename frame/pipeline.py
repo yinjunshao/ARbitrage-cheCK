@@ -1,4 +1,4 @@
-"""Fixed, code-orchestrated pipeline. The LLM is called at three points only.
+﻿"""Fixed, code-orchestrated pipeline. The LLM is called at three points only.
 
 discover -> candidates -> suggestion rules -> judge -> rule-diff -> [HUMAN CONFIRM] -> core.price -> narrate
          -> approve/review/kill
@@ -108,7 +108,7 @@ class Pipeline:
     def scan(self, venues: list[str] = ("polymarket", "kalshi")) -> ScanSummary:
         sid = time.strftime("%Y%m%dT%H%M%S")
         t0 = time.time()
-        self._say("Pulling open markets from the venues…")
+        self._say("Pulling open markets from the venuesâ€¦")
         if hasattr(self.adapter, "progress"):
             self.adapter.progress = self._say
         markets = discover(self.adapter, list(venues), self.cfg.excluded_categories, self.cfg.kalshi_member)
@@ -117,12 +117,18 @@ class Pipeline:
         self.audit.append("discover", {"scan": sid, "venues": list(venues), "n_markets": len(markets),
                                        "core": self.adapter.name, "notes": s.notes})
         self.judge_candidates(markets, s)
-        self._say(f"Pricing venue-declared outcome sets with the core…")
+        self._say(f"Pricing venue-declared outcome sets with the coreâ€¦")
         self.price_venue_sets(markets, s)
         self.last_scan = s
         self.audit.append("scan_done", s.__dict__)
         self._say(f"Done in {time.time() - t0:.0f}s: {s.markets} markets, {s.surfaced} suggestions for review.")
         return s
+
+    def _rule(self, a: Market, b: Market):
+        """The suggestion rules (R1-R6) with this run's time limits."""
+        now_fn = getattr(self.adapter, "now", None)      # the core's clock (frozen in test mode)
+        return rule_check(a, b, now=now_fn() if now_fn else None,
+                          horizon_days=self.cfg.max_days_to_close, gap_days=self.cfg.max_close_gap_days)
 
     def _say(self, text: str) -> None:
         """Where a running scan is up to (shown live in the app and printed by the monitor)."""
@@ -134,13 +140,13 @@ class Pipeline:
     def judge_candidates(self, markets: list[Market], s: ScanSummary | None = None) -> list[Case]:
         s = s or ScanSummary(scan=time.strftime("%Y%m%dT%H%M%S"), markets=len(markets))
         link = getattr(self.adapter, "cheap_link", None)
-        self._say(f"Finding candidate pairs among {len(markets):,} markets and applying the suggestion rules…")
+        self._say(f"Finding candidate pairs among {len(markets):,} markets and applying the suggestion rulesâ€¦")
         raw = cand.generate(markets, self.embedder, self.cfg.top_k, self.cfg.date_window_days,
                             self.cfg.min_similarity, link)
         allowed = []
         for a, b, sim, how in raw:
             pid = pair_id(a, b)
-            r = rule_check(a, b)
+            r = self._rule(a, b)
             if not r.ok:
                 s.rule_refused += 1
                 self.suggestions.rule_refused(pid, a, b, r.rule, r.reason, how, s.scan)
@@ -154,12 +160,12 @@ class Pipeline:
         allowed.sort(key=lambda t: (t[3] != "within_event", -t[2]))
         todo = allowed[: self.cfg.max_judge_per_scan]
         s.deferred = len(allowed) - len(todo)  # their `candidate` row stands until a later scan judges them
-        self._say(f"Asking Gemini about {len(todo)} of {len(allowed):,} candidate pairs ({s.rule_refused:,} refused by rules)…")
+        self._say(f"Asking Gemini about {len(todo)} of {len(allowed):,} candidate pairs ({s.rule_refused:,} refused by rules)â€¦")
         judged = self.judge.judge_many([(a, b) for a, b, *_ in todo])
         # Rule comparisons for the surfaced ones, in parallel (the slow part of a scan).
         from concurrent.futures import ThreadPoolExecutor
         need = [jp for jp in judged if self._surface(jp) and jp.pair_id not in self.cases]
-        self._say(f"Gemini is comparing the resolution rules of {len(need)} related pairs…")
+        self._say(f"Gemini is comparing the resolution rules of {len(need)} related pairsâ€¦")
         with ThreadPoolExecutor(max_workers=self.cfg.judge_concurrency) as ex:
             diffs = dict(zip([jp.pair_id for jp in need], ex.map(
                 lambda jp: compare_rules(self.llm, self.cfg.rules_model, jp.a, jp.b, self.adapter, jp.verdict.relation),
@@ -205,7 +211,7 @@ class Pipeline:
         judged = self.judge.judge_many([(a, b) for _, a, b in pairs])
         cases = []
         for jp, (sim, a, b) in zip(judged, pairs):
-            r = rule_check(a, b)
+            r = self._rule(a, b)
             self.suggestions.candidate(jp.pair_id, a, b, "user", sim, "user")
             case = self._register(jp, sim, force_review=True, how="user")
             if not r.ok:
@@ -215,7 +221,7 @@ class Pipeline:
 
     def check_pair(self, a: Market, b: Market) -> Case:
         """User-entered pair: always shown for review, even if the judge says unrelated."""
-        r = rule_check(a, b)
+        r = self._rule(a, b)
         self.suggestions.candidate(pair_id(a, b), a, b, "user", 0.0, "user")
         case = self._register(self.judge.judge_pair(a, b), similarity=0.0, force_review=True, how="user")
         if not r.ok:
