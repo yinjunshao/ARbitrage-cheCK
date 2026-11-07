@@ -68,6 +68,10 @@ class Market:
     end_ts: float | None = None
     active: bool = True
     closed: bool = False
+    category: str = ""  # e.g. "politics" (from Gamma's feeType "politics_fees")
+    fee_rate: float | None = None  # taker feeRate from Gamma's feeSchedule; None = unknown
+    fee_exponent: float = 1.0
+    fee_taker_only: bool = True  # makers pay nothing
 
     def token(self, outcome: str) -> Token:
         for t in self.tokens:
@@ -189,6 +193,7 @@ class Order:
     order_type: OrderType = OrderType.LIMIT
     tif: TimeInForce = TimeInForce.GTC
     tag: str = ""
+    decision_id: str = ""  # links the order to the checker's / LLM's reasoning trace
     order_id: str = field(default_factory=_next_order_id)
     created_ts: float = 0.0
     status: OrderStatus = OrderStatus.PENDING

@@ -46,6 +46,10 @@ def market_to_dict(m: Market) -> dict:
         "tick_size": m.tick_size,
         "min_order_size": m.min_order_size,
         "end_ts": m.end_ts,
+        "category": m.category,
+        "fee_rate": m.fee_rate,
+        "fee_exponent": m.fee_exponent,
+        "fee_taker_only": m.fee_taker_only,
     }
 
 
@@ -58,6 +62,10 @@ def market_from_dict(d: dict) -> Market:
         tick_size=float(d.get("tick_size", 0.01)),
         min_order_size=float(d.get("min_order_size", 5)),
         end_ts=d.get("end_ts"),
+        category=d.get("category", ""),
+        fee_rate=d.get("fee_rate"),
+        fee_exponent=float(d.get("fee_exponent", 1.0)),
+        fee_taker_only=bool(d.get("fee_taker_only", True)),
     )
 
 

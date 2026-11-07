@@ -15,7 +15,10 @@ def test_buy_and_hold_settles_at_resolution(market):
     res = Backtester(events, [market], BuyAndHold("Yes", 100)).run()
     assert res.metrics["final_equity"] == pytest.approx(1000 - 52 + 100)
     assert res.metrics["realized_pnl"] == pytest.approx(48)
-    assert [round(v, 6) for _, v in res.equity_curve] == [1000 - 52 + 50, 1000 - 52 + 71, 1048]
+    # marked at the best bid (what the shares could be sold for), then settled at $1
+    assert [round(v, 6) for _, v in res.equity_curve] == [1000 - 52 + 48, 1000 - 52 + 70, 1048]
+    mid = Backtester(events, [market], BuyAndHold("Yes", 100), mark="mid").run()
+    assert [round(v, 6) for _, v in mid.equity_curve] == [1000 - 52 + 50, 1000 - 52 + 71, 1048]
 
 
 def test_resolution_cancels_open_orders_and_closes_market(market):

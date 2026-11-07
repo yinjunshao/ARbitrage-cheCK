@@ -54,7 +54,28 @@ def parse_gamma_market(raw: dict) -> Market:
         end_ts=_iso_to_ts(raw.get("endDate")),
         active=bool(raw.get("active", True)),
         closed=bool(raw.get("closed", False)),
+        **_parse_fees(raw),
     )
+
+
+def _parse_fees(raw: dict) -> dict:
+    """Read the market's own fee schedule.
+
+    Gamma returns e.g. ``"feesEnabled": true, "feeType": "politics_fees",
+    "feeSchedule": {"exponent": 1, "rate": 0.04, "takerOnly": true, ...}``
+    (checked against live responses, Nov 2026). Missing fields leave the rate
+    unknown so the exchange can fall back to the category table.
+    """
+    fee_type = str(raw.get("feeType") or "")
+    out: dict = {"category": fee_type.removesuffix("_fees")}
+    sched = raw.get("feeSchedule")
+    if raw.get("feesEnabled") is False:
+        out["fee_rate"] = 0.0
+    elif isinstance(sched, dict) and sched.get("rate") is not None:
+        out["fee_rate"] = float(sched["rate"])
+        out["fee_exponent"] = float(sched.get("exponent", 1) or 1)
+        out["fee_taker_only"] = bool(sched.get("takerOnly", True))
+    return out
 
 
 def parse_resolution(raw: dict, ts: float | None = None) -> ResolutionEvent | None:

@@ -42,6 +42,17 @@ from .models import (
 from .portfolio import Portfolio
 
 
+def _market_fee(m: Market | None) -> FeeModel:
+    if m is None:
+        return FeeModel()
+    if m.fee_rate is not None:
+        maker = 0.0 if m.fee_taker_only else m.fee_rate
+        return FeeModel(taker_rate=m.fee_rate, maker_rate=maker, exponent=m.fee_exponent)
+    if m.category:
+        return FeeModel.for_category(m.category)
+    return FeeModel()  # e.g. an invented market with no fee information
+
+
 class FillMode(str, Enum):
     TOUCH = "touch"
     THROUGH = "through"
@@ -61,7 +72,9 @@ class SimExchange:
         fill_mode: FillMode = FillMode.TOUCH,
     ) -> None:
         self.portfolio = portfolio
-        self.fee_model = fee_model or FeeModel()
+        # An explicit fee model overrides every market's own rate (useful for what-ifs).
+        self.fee_override = fee_model
+        self._fee_cache: dict[str, FeeModel] = {}
         self.latency = float(latency)
         self.fill_mode = FillMode(fill_mode)
         self.market_by_token: dict[str, Market] = {}
@@ -83,6 +96,16 @@ class SimExchange:
     def add_market(self, market: Market) -> None:
         for tid in market.token_ids:
             self.market_by_token[tid] = market
+            self._fee_cache.pop(tid, None)
+
+    def fee_for(self, token_id: str) -> FeeModel:
+        """Fee model for this token: override, else the market's own schedule, else its category."""
+        if self.fee_override is not None:
+            return self.fee_override
+        fm = self._fee_cache.get(token_id)
+        if fm is None:
+            fm = self._fee_cache[token_id] = _market_fee(self.market_by_token.get(token_id))
+        return fm
 
     def book(self, token_id: str) -> OrderBook | None:
         return self.books.get(token_id)
@@ -193,7 +216,7 @@ class SimExchange:
             return
         if not order.is_immediate:
             # GTC limit buy: make sure the whole order could be reserved if it rests.
-            need = order.price * order.size + self.fee_model.max_fee(order.price, order.size)
+            need = order.price * order.size + self.fee_for(order.token_id).max_fee(order.price, order.size)
             if order.side is Side.BUY and need > pf.available_cash + EPS:
                 self._reject(order, "insufficient cash")
                 return
@@ -218,6 +241,7 @@ class SimExchange:
         """Return the (price, qty) the order would take from `book`, without mutating it."""
         levels = book.asks if order.side is Side.BUY else book.bids
         cash = self.portfolio.available_cash
+        fm = self.fee_for(order.token_id)
         left = order.remaining
         plan: list[tuple[float, float]] = []
         for lv in levels:
@@ -230,7 +254,7 @@ class SimExchange:
                     break
             qty = min(left, lv.size)
             if order.side is Side.BUY:
-                per_share = lv.price + self.fee_model.fee(lv.price, 1.0, Liquidity.TAKER)
+                per_share = lv.price + fm.per_share(lv.price, Liquidity.TAKER)
                 qty = min(qty, cash / per_share)
                 cash -= qty * per_share
             if qty <= EPS:
@@ -250,7 +274,7 @@ class SimExchange:
 
     def _rest(self, order: Order) -> None:
         if order.side is Side.BUY:
-            amount = order.price * order.remaining + self.fee_model.max_fee(
+            amount = order.price * order.remaining + self.fee_for(order.token_id).max_fee(
                 order.price, order.remaining
             )
             self.portfolio.lock_cash(amount)
@@ -269,7 +293,7 @@ class SimExchange:
         if qty is None:
             amount = locked
         elif order.side is Side.BUY:
-            amount = order.price * qty + self.fee_model.max_fee(order.price, qty)
+            amount = order.price * qty + self.fee_for(order.token_id).max_fee(order.price, qty)
         else:
             amount = qty
         amount = min(amount, locked)
@@ -325,7 +349,7 @@ class SimExchange:
             side=order.side,
             price=price,
             size=qty,
-            fee=self.fee_model.fee(price, qty, liquidity),
+            fee=self.fee_for(order.token_id).fee(price, qty, liquidity),
             ts=self.now,
             liquidity=liquidity,
         )

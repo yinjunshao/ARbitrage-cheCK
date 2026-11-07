@@ -16,8 +16,11 @@ from .data import (
     save_markets,
     write_events,
 )
+from .approval import auto_approve, cli_approver
+from .audit import verify_file
 from .engine import Backtester, BookSynthesizer
 from .fees import FeeModel
+from .risk import RiskLimits
 from .strategies import REGISTRY
 
 
@@ -32,11 +35,13 @@ def _strategy_kwargs(pairs: list[str]) -> dict:
     return out
 
 
-def _fee_model(args: argparse.Namespace) -> FeeModel:
+def _fee_model(args: argparse.Namespace) -> FeeModel | None:
+    """An explicit override, or None to use each market's own fee schedule."""
+    if args.taker_rate is not None:
+        return FeeModel(args.taker_rate, args.maker_rate)
     if args.fee_category:
-        fm = FeeModel.for_category(args.fee_category, maker_rate=args.maker_rate)
-        return fm if args.taker_rate is None else FeeModel(args.taker_rate, args.maker_rate)
-    return FeeModel(taker_rate=args.taker_rate or 0.0, maker_rate=args.maker_rate)
+        return FeeModel.for_category(args.fee_category, maker_rate=args.maker_rate)
+    return None
 
 
 def cmd_backtest(args: argparse.Namespace) -> int:
@@ -61,6 +66,17 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         latency=args.latency,
         fill_mode=args.fill_mode,
         synthesizer=BookSynthesizer(spread=args.synth_spread, size_per_level=args.synth_depth),
+        risk_limits=RiskLimits(
+            max_order_notional=args.max_order_notional,
+            max_position_cost=args.max_position_cost,
+            max_gross_exposure=args.max_gross_exposure,
+            max_orders_per_day=args.max_orders_per_day,
+            max_daily_loss=args.max_daily_loss,
+            max_drawdown_pct=args.max_drawdown_pct,
+        ),
+        approver=cli_approver(args.approver_name) if args.approve == "cli" else auto_approve,
+        audit=args.audit,
+        mark=args.mark,
     )
     result = bt.run()
     source = "recorded Polymarket data" if args.events else "SYNTHETIC data (invented market)"
@@ -74,11 +90,29 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                     "metrics": result.metrics,
                     "equity_curve": result.equity_curve,
                     "final_portfolio": result.final_portfolio,
+                    "risk": result.risk,
+                    "baskets": [b.summary() for b in result.baskets],
+                    "manual_settlements": result.manual_settlements,
+                    "paper_trading": True,
                 },
                 fh,
                 indent=2,
             )
     return 0
+
+
+def cmd_demo(args: argparse.Namespace) -> int:
+    from .demo import run_demo
+
+    res = run_demo(audit_dir=args.audit_dir, approver_name=args.approver_name)
+    print(f"\naudit logs written to {res['audit_dir']}")
+    return 0
+
+
+def cmd_audit_verify(args: argparse.Namespace) -> int:
+    ok, bad = verify_file(args.path)
+    print(f"{args.path}: hash chain {'verified' if ok else f'BROKEN at record {bad}'}")
+    return 0 if ok else 1
 
 
 def cmd_markets(args: argparse.Namespace) -> int:
@@ -149,8 +183,29 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--fill-mode", choices=["touch", "through"], default="touch")
     bt.add_argument("--synth-spread", type=float, default=0.02, help="spread for books built from prices")
     bt.add_argument("--synth-depth", type=float, default=500.0, help="size per level for synthetic books")
+    bt.add_argument("--mark", choices=["bid", "mid"], default="bid", help="price open positions are valued at")
+    risk = bt.add_argument_group("risk limits (enforced in code; off unless set)")
+    risk.add_argument("--max-order-notional", type=float, help="USDC per buy order")
+    risk.add_argument("--max-position-cost", type=float, help="USDC cost per token")
+    risk.add_argument("--max-gross-exposure", type=float, help="USDC across positions + reserved cash")
+    risk.add_argument("--max-orders-per-day", type=int)
+    risk.add_argument("--max-daily-loss", type=float, help="USDC; trips the kill switch")
+    risk.add_argument("--max-drawdown-pct", type=float, help="percent from peak; trips the kill switch")
+    bt.add_argument("--approve", choices=["auto", "cli"], default="auto",
+                    help="auto = backtest auto-approval (logged as such); cli = ask a person for every order")
+    bt.add_argument("--approver-name", default="", help="your name, recorded with each approval (--approve cli)")
+    bt.add_argument("--audit", help="write the hash-chained audit log to this JSONL file")
     bt.add_argument("--json", help="write metrics + equity curve to this file")
     bt.set_defaults(func=cmd_backtest)
+
+    dm = sub.add_parser("demo", help="show every risk control triggering, on invented data (offline)")
+    dm.add_argument("--audit-dir", help="where to write the demo's audit logs (default: a temp folder)")
+    dm.add_argument("--approver-name", default="demo user")
+    dm.set_defaults(func=cmd_demo)
+
+    av = sub.add_parser("audit-verify", help="check an audit log's hash chain")
+    av.add_argument("path")
+    av.set_defaults(func=cmd_audit_verify)
 
     mk = sub.add_parser("markets", help="list active Polymarket markets")
     mk.add_argument("--limit", type=int, default=20)
