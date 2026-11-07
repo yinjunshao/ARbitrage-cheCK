@@ -38,7 +38,20 @@ def verify_rulediff(diff: RuleDiff, a: Market, b: Market) -> VerifiedRuleDiff:
                             unverified_quotes=unverified, escalated=escalated)
 
 
-def compare_rules(llm: LLMClient, model: str, a: Market, b: Market, core_adapter=None) -> VerifiedRuleDiff:
+_RELATION_NOTE = {
+    "a_implies_b": "The proposed relation is A implies B (e.g. nested deadlines or thresholds). The deadline or "
+                   "threshold difference that CREATES the implication is expected: do not list it as a blocker. "
+                   "Flag only differences that could break the implication.",
+    "b_implies_a": "The proposed relation is B implies A (e.g. nested deadlines or thresholds). The deadline or "
+                   "threshold difference that CREATES the implication is expected: do not list it as a blocker. "
+                   "Flag only differences that could break the implication.",
+    "mutually_exclusive": "The proposed relation is mutually exclusive outcomes. Flag differences that could let both resolve Yes.",
+    "exhaustive_set": "The proposed relation is an exhaustive set. Flag differences that could leave an outcome uncovered.",
+}
+
+
+def compare_rules(llm: LLMClient, model: str, a: Market, b: Market, core_adapter=None,
+                  relation: str | None = None) -> VerifiedRuleDiff:
     if core_adapter is not None and (core := core_adapter.compare_rules(a, b)) is not None:
         return core  # reuse the core's extractor when it exists
     missing = [m for m in (a, b) if not m.rules_text.strip()]
@@ -49,6 +62,8 @@ def compare_rules(llm: LLMClient, model: str, a: Market, b: Market, core_adapter
                         + ". Cannot confirm both resolve the same way.")])
         return VerifiedRuleDiff(diff=diff)
     user = f"RULES A ({a.venue}: {a.title})\n{a.rules_text}\n\nRULES B ({b.venue}: {b.title})\n{b.rules_text}\n"
+    if relation in _RELATION_NOTE:
+        user = _RELATION_NOTE[relation] + "\n\n" + user
     try:
         diff = llm.generate("compare_rules", SYSTEM, user, RuleDiff, model, key=pair_id(a, b))
     except LLMError as e:

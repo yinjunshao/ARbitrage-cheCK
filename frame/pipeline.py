@@ -104,7 +104,7 @@ class Pipeline:
         self.audit.append("judged", {"case": case.id, "verdict": jp.verdict.model_dump(), "verified": jp.verified,
                                      "failed_spans": jp.failed_spans, "source": jp.source})
         if self._surface(jp) or force_review:
-            case.rules = compare_rules(self.llm, self.cfg.rules_model, jp.a, jp.b, self.adapter)
+            case.rules = compare_rules(self.llm, self.cfg.rules_model, jp.a, jp.b, self.adapter, jp.verdict.relation)
             self.audit.append("rulediff", {"case": case.id, "overall": case.rules.diff.overall,
                                            "unverified": case.rules.unverified_quotes, "escalated": case.rules.escalated})
             self._move(case, "awaiting_confirm")
@@ -120,11 +120,12 @@ class Pipeline:
         case = self.cases[case_id]
         if case.state == "filtered":
             self._move(case, "awaiting_confirm", by=user)
-            case.rules = case.rules or compare_rules(self.llm, self.cfg.rules_model, case.judged.a, case.judged.b, self.adapter)
         proposed = case.judged.verdict.relation
         final = relation or proposed
         if final in ("unrelated", "unclear"):
             raise ValueError("A confirmed relation must be a logical link; reject the pair instead.")
+        if case.rules is None or final != proposed:  # rules are judged relative to the relation
+            case.rules = compare_rules(self.llm, self.cfg.rules_model, case.judged.a, case.judged.b, self.adapter, final)
         rel = Relation(pair_id=case.id, relation=final, legs=[case.judged.a, case.judged.b], confirmed_by=user, note=note)
         case.relation = rel
         self.labels.add(case.id, case.judged.a, case.judged.b, final, True, note, proposed)
