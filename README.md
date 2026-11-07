@@ -23,6 +23,9 @@ pytest
 # Every control triggering on screen, on invented data (no network needed): the live-demo script
 polysim demo
 
+# Our checker vs a naive price-only checker, on a SYNTHETIC dataset (no network needed)
+polysim evaluate --demo
+
 # Example strategies on an invented market
 polysim backtest --strategy buy_and_hold --seed 1
 polysim backtest --strategy market_maker --fill-mode through --fee-category crypto --latency 5 \
@@ -50,6 +53,47 @@ Four short paper backtests on invented markets, each one triggering a control:
 2. **The same basket going wrong.** With a 2-second delay, the second leg's sellers disappear before it arrives. Fill-or-kill fails, the first leg is sold straight back (pre-approved as part of the plan), and the **leg-risk cost** of 3.99 USDC is reported: what a "risk-free" arbitrage can still lose.
 3. **Risk limits in code.** An order over the 150 USDC limit is refused. A price crash takes the account 5.2% below its peak, so the **kill switch** trips: buys are refused (reduce-only), closing the position is still allowed, a reset by `auto` is refused, and a reset by a named person works.
 4. **The audit log.** The hash chain verifies; editing one line in a copy is caught at that record.
+
+## Evaluation: `polysim evaluate`
+
+This answers the judging question "tested on unseen data, with real costs, against a fitting benchmark, with uncertainty stated".
+
+**Benchmark.** A naive checker that flags any basket whose guaranteed payout is above the sum of the **mid** prices. It ignores fees, depth and the rules: the conventional program.
+
+**Input.** A JSONL file of claimed arbitrages from the checker (arbcheck / frame), one per line:
+
+```json
+{"id": "c1", "ts": 1767225600, "token_ids": ["A-NO", "B-YES"], "floor": 1.0,
+ "rule_check": "match", "relation": "a_implies_b", "decision_id": "..."}
+```
+
+`floor` is the guaranteed payout per basket if the relation holds, and `rule_check` is `match`, `mismatch` or `unclear`. Both come from the checker; the evaluation does not re-derive them. It also needs the books and results recorded with `record` / `fetch`.
+
+**What happens to each candidate, step by step.**
+
+1. **Naive flag**: floor > sum of mids?
+2. **Fees**: still positive at the best asks plus taker fees?
+3. **Depth**: walk the books; at least `--min-shares` baskets fillable, with an average edge of at least `min_edge` per share after fees?
+4. **Rules**: the rule check said `match`? `unclear` counts as a fail.
+
+Our checker takes a candidate only if it passes all four. Then **both** checkers' trades are executed on paper with polysim (fill-or-kill legs, 2 s latency, automatic unwind) and held to resolution.
+
+**Scoring.** P&L counts only what the arbitrage claimed to guarantee: floor × baskets − everything paid. If an outcome pays more than the floor (e.g. both legs win), the extra is luck, not arbitrage, so it is listed separately and not counted. If the relation breaks, the whole loss counts.
+
+**Outcomes** for our checker: **win** (took it, made money), **false alarm** (took it, didn't), **miss** (blocked it, the naive trade made money), **correct block** (blocked it, the naive trade lost). False alarms and misses are listed one by one, next to the wins.
+
+**Unseen data.** With `--split-ts`, `min_edge` is chosen on the earlier period only, then used **once** on the later period. Without a split, the report says it is in-sample.
+
+**Uncertainty.** 95% bootstrap intervals for the P&L difference, our precision and the naive hit rate. Under 30 resolved candidates, the report warns that the intervals are wide.
+
+**Bad or manipulated inputs** are rejected before evaluation and listed with the reason: malformed JSON, missing fields, an impossible floor (e.g. "$3 guaranteed" on two legs), the same token twice, unknown markets, stale or crossed books, and claims made after a market had already resolved.
+
+```bash
+polysim evaluate --candidates candidates.jsonl --events books.jsonl --markets markets.json \
+    --split-ts 2026-11-20 --json report.json
+```
+
+**About `--demo`.** It runs on an invented dataset of 60 ladder pairs: real gaps, gaps eaten by fees, thin books, rule mismatches, rules that couldn't be confirmed, and sellers who vanish during the delay, plus 6 deliberately bad inputs. It shows how the evaluation behaves. **It is not evidence that the checker works**; the result is built into the data. Only results on recorded data count.
 
 ## How it works, step by step
 
@@ -163,7 +207,8 @@ For an arbitrage, call `ctx.execute_basket([BasketLeg(token_a, 100, max_price=0.
 
 In priority order, matching the hackathon judging:
 
-1. **Evaluation script**: tune on an earlier recorded period, test once on a later one, and report the funnel (naive flags → after fees → after depth → after rule check → realised at resolution) with uncertainty.
-2. **Connect to arbcheck and frame**: take guard-approved baskets with their `decision_id`, use arbcheck's read-only client, and write paper fills into frame's audit log.
-3. **Record trades as well as books**, then add a queue model for maker orders.
-4. **"What would change the verdict"**: report the price or depth at which a basket stops being worth it.
+1. **Record real books now** for ladder pairs, so there is a later period the checker has never seen.
+2. **Connect to arbcheck and frame**: export their candidates (with `floor`, `rule_check` and `decision_id`) as `polysim evaluate` input, use arbcheck's read-only client, and write paper fills into frame's audit log.
+3. **Hand-label 100–200 market pairs** to measure the LLM's relation detection (precision first) alongside this evaluation.
+4. **Record trades as well as books**, then add a queue model for maker orders.
+5. **"What would change the verdict"**: report the price or depth at which a basket stops being worth it.

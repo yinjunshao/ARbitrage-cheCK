@@ -42,7 +42,7 @@ from .models import (
 from .portfolio import Portfolio
 
 
-def _market_fee(m: Market | None) -> FeeModel:
+def market_fee_model(m: Market | None) -> FeeModel:
     if m is None:
         return FeeModel()
     if m.fee_rate is not None:
@@ -104,7 +104,7 @@ class SimExchange:
             return self.fee_override
         fm = self._fee_cache.get(token_id)
         if fm is None:
-            fm = self._fee_cache[token_id] = _market_fee(self.market_by_token.get(token_id))
+            fm = self._fee_cache[token_id] = market_fee_model(self.market_by_token.get(token_id))
         return fm
 
     def book(self, token_id: str) -> OrderBook | None:

@@ -109,6 +109,48 @@ def cmd_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_ts(v: str | None) -> float | None:
+    """A unix timestamp, or an ISO date/time such as 2026-11-15 (UTC)."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        from datetime import datetime, timezone
+
+        dt = datetime.fromisoformat(v)
+        return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def cmd_evaluate(args: argparse.Namespace) -> int:
+    from .evaluation import EvalConfig, MarketData, evaluate, format_report, load_candidates, parse_candidates
+
+    if args.demo:
+        from .eval_demo import make_eval_dataset
+
+        markets, events, raw, split = make_eval_dataset(seed=args.seed)
+        cands, bad = parse_candidates(raw)
+        label = "SYNTHETIC demo data (invented markets, books and results)"
+    else:
+        if not (args.candidates and args.events and args.markets):
+            print("evaluate needs --candidates, --events and --markets (or --demo)", file=sys.stderr)
+            return 2
+        markets, events = load_markets(args.markets), list(read_events(args.events))
+        cands, bad = load_candidates(args.candidates)
+        split = None
+        label = "recorded Polymarket data"
+    split = _parse_ts(args.split_ts) if args.split_ts else split
+    cfg = EvalConfig(size=args.size, min_edge=args.min_edge, min_shares=args.min_shares,
+                     latency=args.latency, bootstrap=args.bootstrap, seed=args.seed, fee_model=_fee_model(args))
+    rep = evaluate(cands, MarketData(events, markets), cfg, split_ts=split, label=label, rejected_inputs=bad)
+    print(format_report(rep))
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(rep.as_dict(), fh, indent=2, default=str)
+        print(f"\nfull results written to {args.json}")
+    return 0
+
+
 def cmd_audit_verify(args: argparse.Namespace) -> int:
     ok, bad = verify_file(args.path)
     print(f"{args.path}: hash chain {'verified' if ok else f'BROKEN at record {bad}'}")
@@ -202,6 +244,24 @@ def build_parser() -> argparse.ArgumentParser:
     dm.add_argument("--audit-dir", help="where to write the demo's audit logs (default: a temp folder)")
     dm.add_argument("--approver-name", default="demo user")
     dm.set_defaults(func=cmd_demo)
+
+    ev = sub.add_parser("evaluate", help="our checker vs a naive price-only checker, paper-executed to resolution")
+    ev.add_argument("--demo", action="store_true", help="run on a built-in SYNTHETIC dataset (offline)")
+    ev.add_argument("--candidates", help="JSONL of claimed arbitrages (id, ts, token_ids, floor, rule_check)")
+    ev.add_argument("--events", help="recorded books + resolutions (JSONL)")
+    ev.add_argument("--markets", help="markets JSON matching --events")
+    ev.add_argument("--split-ts", help="tune before this time, test after (unix ts or ISO date)")
+    ev.add_argument("--size", type=float, default=100.0, help="baskets the naive checker buys")
+    ev.add_argument("--min-edge", type=float, default=0.01, help="USDC/share after fees (used if no split)")
+    ev.add_argument("--min-shares", type=float, default=20.0, help="depth our checker needs")
+    ev.add_argument("--latency", type=float, default=2.0, help="seconds per order")
+    ev.add_argument("--bootstrap", type=int, default=2000, help="resamples for the 95%% intervals")
+    ev.add_argument("--seed", type=int, default=0)
+    ev.add_argument("--fee-category", help="override every market's fee with a category rate")
+    ev.add_argument("--taker-rate", type=float, default=None, help="override every market's taker feeRate")
+    ev.add_argument("--maker-rate", type=float, default=0.0)
+    ev.add_argument("--json", help="write the full report (every candidate) to this file")
+    ev.set_defaults(func=cmd_evaluate)
 
     av = sub.add_parser("audit-verify", help="check an audit log's hash chain")
     av.add_argument("path")
