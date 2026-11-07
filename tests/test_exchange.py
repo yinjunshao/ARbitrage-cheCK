@@ -111,8 +111,16 @@ def test_latency_matches_against_book_at_arrival(exchange):
 
 
 def test_taker_fees_follow_polymarket_formula(exchange):
-    ex = exchange(fee_model=FeeModel(taker_bps=100))
+    ex = exchange(fee_model=FeeModel(taker_rate=0.07))
     ex.on_book(make_book(asks=((0.80, 100),)))
     ex.submit(mkt(Side.BUY, 100))
-    assert ex.fills[-1].fee == pytest.approx(0.01 * 0.20 * 100)
-    assert ex.portfolio.cash == pytest.approx(1000 - 80 - 0.2)
+    # feeRate * p * (1 - p) * shares
+    assert ex.fills[-1].fee == pytest.approx(0.07 * 0.80 * 0.20 * 100)
+    assert ex.portfolio.cash == pytest.approx(1000 - 80 - 1.12)
+
+
+def test_resting_buy_reserves_cash_for_fees(exchange):
+    ex = exchange(fee_model=FeeModel(taker_rate=0.07, maker_rate=0.07))
+    ex.on_book(make_book())
+    ex.submit(lim(Side.BUY, 100, 0.50))
+    assert ex.portfolio.locked_cash == pytest.approx(50 + 1.75)

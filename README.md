@@ -13,7 +13,7 @@ pytest
 # 合成市场上跑示例策略（不需要网络）
 polysim backtest --strategy buy_and_hold --seed 1
 polysim backtest --strategy mean_reversion --param window=20 --param size=30
-polysim backtest --strategy market_maker --fill-mode through --taker-bps 100 --latency 5
+polysim backtest --strategy market_maker --fill-mode through --fee-category crypto --latency 5
 
 # 真实数据（需要能访问 gamma-api.polymarket.com / clob.polymarket.com）
 polysim markets --limit 20
@@ -48,7 +48,7 @@ polysim backtest --strategy mean_reversion --events events.jsonl --markets marke
 | `polysim/events.py` | 事件类型与 JSON 序列化 |
 | `polysim/exchange.py` | 模拟 CLOB：吃单逐档成交、挂单 maker 成交、FOK/FAK/GTC、延迟、资金/持仓冻结 |
 | `polysim/portfolio.py` | 现金、持仓、均价、已实现/未实现 PnL、结算 |
-| `polysim/fees.py` | Polymarket 费率公式 `rate × min(p, 1−p) × shares` |
+| `polysim/fees.py` | Polymarket 费率公式 `feeRate × p × (1−p) × shares`，费率按类别取（如 crypto 0.07：100 份 @0.50 → $1.75） |
 | `polysim/engine.py` | 回测主循环；`BookSynthesizer` 把纯价格数据转换成盘口 |
 | `polysim/strategy.py` | `Strategy` 基类 + `StrategyContext` |
 | `polysim/metrics.py` | 收益、最大回撤、Sharpe、成交量、费用 |

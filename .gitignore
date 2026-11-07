@@ -5,6 +5,6 @@ __pycache__/
 .venv/
 build/
 dist/
-data/
+/data/
 *.jsonl
 !tests/fixtures/*.jsonl

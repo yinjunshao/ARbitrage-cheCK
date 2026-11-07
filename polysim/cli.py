@@ -32,6 +32,13 @@ def _strategy_kwargs(pairs: list[str]) -> dict:
     return out
 
 
+def _fee_model(args: argparse.Namespace) -> FeeModel:
+    if args.fee_category:
+        fm = FeeModel.for_category(args.fee_category, maker_rate=args.maker_rate)
+        return fm if args.taker_rate is None else FeeModel(args.taker_rate, args.maker_rate)
+    return FeeModel(taker_rate=args.taker_rate or 0.0, maker_rate=args.maker_rate)
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     if args.events:
         if not args.markets:
@@ -50,7 +57,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         markets,
         strategy,
         initial_cash=args.cash,
-        fee_model=FeeModel(taker_bps=args.taker_bps, maker_bps=args.maker_bps),
+        fee_model=_fee_model(args),
         latency=args.latency,
         fill_mode=args.fill_mode,
         synthesizer=BookSynthesizer(spread=args.synth_spread, size_per_level=args.synth_depth),
@@ -133,8 +140,9 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--seed", type=int, default=0, help="synthetic market seed")
     bt.add_argument("--steps", type=int, default=500, help="synthetic market length")
     bt.add_argument("--cash", type=float, default=1000.0)
-    bt.add_argument("--taker-bps", type=float, default=0.0)
-    bt.add_argument("--maker-bps", type=float, default=0.0)
+    bt.add_argument("--fee-category", help="use the verified taker fee rate for a category (e.g. crypto)")
+    bt.add_argument("--taker-rate", type=float, default=None, help="taker feeRate (fraction), overrides category")
+    bt.add_argument("--maker-rate", type=float, default=0.0, help="maker feeRate (fraction)")
     bt.add_argument("--latency", type=float, default=0.0, help="order latency in seconds")
     bt.add_argument("--fill-mode", choices=["touch", "through"], default="touch")
     bt.add_argument("--synth-spread", type=float, default=0.02, help="spread for books built from prices")
