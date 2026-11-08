@@ -39,6 +39,8 @@ polysim backtest --strategy buy_and_hold --approve cli --approver-name "Your Nam
 # Record whole ladders (every open market of each event) until stopped; see "Recording" below
 caffeinate -i polysim record-events anthropic-ipo-by what-price-will-bitcoin-hit-in-november-2026
 polysim resolutions                       # later: add results for markets that have resolved
+polysim paper --tickets tickets.jsonl --events recordings --markets recordings/markets.json  # see "Paper desk"
+polysim paper --tickets tickets.jsonl --live --approve cli --approver-name "Your Name"
 polysim evaluate --candidates candidates.jsonl --events recordings --markets recordings/markets.json \
     --split-ts 2026-11-12
 polysim markets --limit 20
@@ -112,9 +114,44 @@ Polymarket keeps fine-grained history for only about a week, and it never keeps 
 - `resolutions.jsonl`: each market's result as soon as it resolves. The recorder refreshes events every 30 minutes, adds new markets and stops recording closed ones. `polysim resolutions` fills in any results after recording stops.
 - `recorder.log`: progress and errors. A failed request is logged and skipped, never fatal.
 
-It sends at most 5 requests a second, far below Polymarket's documented limits, and backs off on HTTP 429. It reads only public GET endpoints and identifies itself as a read-only research tool. `recordings/` is in `.gitignore`, because Polymarket's terms bar redistributing their data. On a Mac, `caffeinate -i` keeps the computer from sleeping while it runs. Restarting it with the same folder carries on where it left off.
+It sends at most 5 requests a second, far below Polymarket's documented limits, and backs off on HTTP 429. It reads only public GET endpoints and identifies itself as a read-only research tool. `recordings/` is in `.gitignore`, because Polymarket's terms bar redistributing their data. On a Mac, `caffeinate -i` stops idle sleep while it runs, but **not** sleep from closing the lid: keep the lid open and the charger in, or the recording has a gap (the recorder carries on by itself when the Mac wakes). Restarting it with the same folder carries on where it left off.
 
-`--events` in `evaluate` and `backtest` accepts recorder folders as well as files.
+`--events` in `evaluate`, `backtest` and `paper` accepts recorder folders as well as files.
+
+## Paper desk: `polysim paper`
+
+This is where the checker's decision meets execution. arbcheck decides whether a basket is worth buying and at what prices; the paper desk shows what would have happened if we had tried.
+
+**Input: tickets.** One JSON object per approved opportunity (`polysim/tickets.py`):
+
+```json
+{"ticket_id": "case-7", "ts": 1794080000, "kind": "a_implies_b", "floor": 1.0, "shares": 120,
+ "expected_cost": 118.4, "expected_profit": 1.6,
+ "legs": [{"token_id": "...", "outcome": "NO",  "max_price": 0.42, "market_id": "0x...", "label": "A NO"},
+          {"token_id": "...", "outcome": "YES", "max_price": 0.57, "market_id": "0x...", "label": "B YES"}]}
+```
+
+`ticket_from_core(case.markets, case.arb, case.decision, ts=..., decision_id=...)` builds one straight from arbcheck's objects. It refuses anything the guard did not approve (`OK` or `WARN`), and sets each leg's `max_price` to the worst price the core priced. polysim does not import arbcheck, and arbcheck does not import polysim; the ticket is the whole interface.
+
+**What happens to each ticket, step by step.**
+
+1. Wait until the data reaches the ticket's time and every leg has a book less than `--max-book-age` seconds old. Give up after `--max-delay` seconds (`expired`).
+2. Risk limits check the whole basket (`rejected` if any leg breaks a limit, or the kill switch is on).
+3. One approval for the whole plan, including the unwind: automatic in replays, or a named person with `--approve cli`.
+4. The legs go out one by one as fill-or-kill buys, with `--latency` seconds of delay each, never above `max_price`. If a leg fails, the legs already bought are sold back (`unwound`), and the loss is the **leg-risk cost**.
+5. If every leg resolves within the data, the desk checks the payout against the promised floor and reports a broken relation as `FLOOR BROKEN`.
+
+Every order carries the ticket id as its `decision_id`, so the hash-chained audit log (`--audit`) links each fill to the checker's reasoning.
+
+**The report**, per ticket: status, delay, the checker's expected cost against the paper cost (**slippage**), **locked profit** (floor × shares − paper cost: the part that does not depend on any outcome), leg-risk cost, and the realised result after resolution.
+
+```bash
+polysim paper --tickets tickets.jsonl --events recordings --markets recordings/markets.json --latency 2 \
+    --audit paper-audit.jsonl --json paper.json
+polysim paper --tickets tickets.jsonl --live --approve cli --approver-name "Your Name"   # current books, one snapshot
+```
+
+**On our 7–8 Nov recording**, arbcheck priced 255 moments where a ladder pair showed a gap at the best asks. With its normal limits it approved **none**. With every threshold set to zero, to exercise the hand-over, it approved 192, almost all one Bitcoin pair at 99.4¢ + 0.5¢. The desk filled all 192 at the core's prices: **$8.27 locked in, on $20,500 of capital tied up until the end of 2026**. The 20 that resolved during the recording all paid their floor. The recorder's books are a minute apart, so in a replay the book does not move during the 2-second latency; on live books it can.
 
 ## How it works, step by step
 
@@ -229,7 +266,7 @@ For an arbitrage, call `ctx.execute_basket([BasketLeg(token_a, 100, max_price=0.
 In priority order, matching the hackathon judging:
 
 1. **Record real books now** for ladder pairs, so there is a later period the checker has never seen.
-2. **Connect to arbcheck and frame**: export their candidates (with `floor`, `rule_check` and `decision_id`) as `polysim evaluate` input, use arbcheck's read-only client, and write paper fills into frame's audit log.
+2. **Connect frame to the paper desk**: when a person approves a case in the app, call `ticket_from_core` and send the ticket to `polysim paper --live`, then show the paper fill next to the core's numbers. The ticket format and a test against the real core (`tests/polysim/test_desk_arbcheck.py`) are in place.
 3. **Hand-label 100–200 market pairs** to measure the LLM's relation detection (precision first) alongside this evaluation.
 4. **Record trades as well as books**, then add a queue model for maker orders.
 5. **"What would change the verdict"**: report the price or depth at which a basket stops being worth it.

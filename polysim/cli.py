@@ -46,6 +46,65 @@ def _fee_model(args: argparse.Namespace) -> FeeModel | None:
     return None
 
 
+def _risk_limits(args: argparse.Namespace) -> RiskLimits:
+    return RiskLimits(
+        max_order_notional=args.max_order_notional,
+        max_position_cost=args.max_position_cost,
+        max_gross_exposure=args.max_gross_exposure,
+        max_orders_per_day=args.max_orders_per_day,
+        max_daily_loss=args.max_daily_loss,
+        max_drawdown_pct=args.max_drawdown_pct,
+    )
+
+
+def _approver(args: argparse.Namespace):
+    return cli_approver(args.approver_name) if args.approve == "cli" else auto_approve
+
+
+def _add_oversight_args(p: argparse.ArgumentParser) -> None:
+    risk = p.add_argument_group("risk limits (enforced in code; off unless set)")
+    risk.add_argument("--max-order-notional", type=float, help="USDC per buy order")
+    risk.add_argument("--max-position-cost", type=float, help="USDC cost per token")
+    risk.add_argument("--max-gross-exposure", type=float, help="USDC across positions + reserved cash")
+    risk.add_argument("--max-orders-per-day", type=int)
+    risk.add_argument("--max-daily-loss", type=float, help="USDC; trips the kill switch")
+    risk.add_argument("--max-drawdown-pct", type=float, help="percent from peak; trips the kill switch")
+    p.add_argument("--approve", choices=["auto", "cli"], default="auto",
+                   help="auto = backtest auto-approval (logged as such); cli = ask a person for every order")
+    p.add_argument("--approver-name", default="", help="your name, recorded with each approval (--approve cli)")
+    p.add_argument("--audit", help="write the hash-chained audit log to this JSONL file")
+
+
+def cmd_paper(args: argparse.Namespace) -> int:
+    from .desk import format_report, live_snapshot, paper_trade
+    from .tickets import load_tickets
+
+    tickets, problems = load_tickets(args.tickets)
+    if not tickets:
+        print("no valid tickets in " + args.tickets + "".join(f"\n  - {p}" for p in problems), file=sys.stderr)
+        return 2
+    if args.live:
+        markets, events = live_snapshot(PolymarketClient(), tickets)
+        source = "LIVE Polymarket order books (read-only, one snapshot)"
+    elif args.events:
+        if not args.markets:
+            print("--events requires --markets (the recording's markets.json)", file=sys.stderr)
+            return 2
+        markets, events = load_markets(args.markets), read_event_files(args.events)
+        source = "recorded Polymarket data"
+    else:
+        print("give --events/--markets (a recording) or --live", file=sys.stderr)
+        return 2
+    rep = paper_trade(tickets, events, markets, cash=args.cash, latency=args.latency,
+                      risk_limits=_risk_limits(args), approver=_approver(args), audit=args.audit,
+                      max_delay=args.max_delay, max_book_age=args.max_book_age, source=source, problems=problems)
+    print(format_report(rep))
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(rep.as_dict(), fh, indent=2)
+    return 0
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     if args.events:
         if not args.markets:
@@ -68,15 +127,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         latency=args.latency,
         fill_mode=args.fill_mode,
         synthesizer=BookSynthesizer(spread=args.synth_spread, size_per_level=args.synth_depth),
-        risk_limits=RiskLimits(
-            max_order_notional=args.max_order_notional,
-            max_position_cost=args.max_position_cost,
-            max_gross_exposure=args.max_gross_exposure,
-            max_orders_per_day=args.max_orders_per_day,
-            max_daily_loss=args.max_daily_loss,
-            max_drawdown_pct=args.max_drawdown_pct,
-        ),
-        approver=cli_approver(args.approver_name) if args.approve == "cli" else auto_approve,
+        risk_limits=_risk_limits(args),
+        approver=_approver(args),
         audit=args.audit,
         mark=args.mark,
     )
@@ -265,19 +317,22 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--synth-spread", type=float, default=0.02, help="spread for books built from prices")
     bt.add_argument("--synth-depth", type=float, default=500.0, help="size per level for synthetic books")
     bt.add_argument("--mark", choices=["bid", "mid"], default="bid", help="price open positions are valued at")
-    risk = bt.add_argument_group("risk limits (enforced in code; off unless set)")
-    risk.add_argument("--max-order-notional", type=float, help="USDC per buy order")
-    risk.add_argument("--max-position-cost", type=float, help="USDC cost per token")
-    risk.add_argument("--max-gross-exposure", type=float, help="USDC across positions + reserved cash")
-    risk.add_argument("--max-orders-per-day", type=int)
-    risk.add_argument("--max-daily-loss", type=float, help="USDC; trips the kill switch")
-    risk.add_argument("--max-drawdown-pct", type=float, help="percent from peak; trips the kill switch")
-    bt.add_argument("--approve", choices=["auto", "cli"], default="auto",
-                    help="auto = backtest auto-approval (logged as such); cli = ask a person for every order")
-    bt.add_argument("--approver-name", default="", help="your name, recorded with each approval (--approve cli)")
-    bt.add_argument("--audit", help="write the hash-chained audit log to this JSONL file")
+    _add_oversight_args(bt)
     bt.add_argument("--json", help="write metrics + equity curve to this file")
     bt.set_defaults(func=cmd_backtest)
+
+    pp = sub.add_parser("paper", help="paper-execute tickets the checker approved, on a recording or live books")
+    pp.add_argument("--tickets", required=True, help="JSON list or JSONL of tickets (see polysim/tickets.py)")
+    pp.add_argument("--events", nargs="+", help="recorder folders or event files to trade on")
+    pp.add_argument("--markets", help="markets JSON matching --events")
+    pp.add_argument("--live", action="store_true", help="trade on the current live books (read-only GETs)")
+    pp.add_argument("--cash", type=float, default=1000.0)
+    pp.add_argument("--latency", type=float, default=2.0, help="seconds between sending a leg and it reaching the book")
+    pp.add_argument("--max-delay", type=float, default=300.0, help="give up on a ticket this many seconds after its time")
+    pp.add_argument("--max-book-age", type=float, default=120.0, help="only trade a leg whose book is this fresh")
+    _add_oversight_args(pp)
+    pp.add_argument("--json", help="write the per-ticket report to this file")
+    pp.set_defaults(func=cmd_paper)
 
     dm = sub.add_parser("demo", help="show every risk control triggering, on invented data (offline)")
     dm.add_argument("--audit-dir", help="where to write the demo's audit logs (default: a temp folder)")

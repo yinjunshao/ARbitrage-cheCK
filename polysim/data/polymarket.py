@@ -171,6 +171,19 @@ class PolymarketClient:
     def get_market(self, slug: str) -> Market:
         return parse_gamma_market(self.get_market_raw(slug))
 
+    def get_markets_by_condition_ids(self, condition_ids: Iterable[str]) -> list[Market]:
+        """Markets by their condition ids (open or closed), in batches of 20."""
+        ids, out = list(condition_ids), []
+        for i in range(0, len(ids), 20):
+            batch = ids[i : i + 20]
+            raw = self._get(self.gamma_url, "/markets", {"condition_ids": batch, "limit": len(batch)})
+            for r in raw:
+                try:
+                    out.append(parse_gamma_market(r))
+                except (ValueError, KeyError, json.JSONDecodeError):
+                    continue
+        return out
+
     def get_event_raw(self, slug: str) -> dict:
         """A Gamma event (e.g. a date or price ladder) with all its markets and rules text."""
         res = self._get(self.gamma_url, "/events", {"slug": slug})
