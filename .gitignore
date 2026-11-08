@@ -7,7 +7,8 @@ __pycache__/
 data/frame/audit.jsonl
 data/frame/labels.jsonl
 data/frame/cache/
-
+data/frame/core_decisions.jsonl
+arbcheck-project/report.html
 # polysim
 *.egg-info/
 build/
@@ -15,6 +16,13 @@ dist/
 # recorded books/events: keep them out of git, except test fixtures
 *.jsonl
 !tests/polysim/fixtures/*.jsonl
-
 # local recordings of Polymarket data: never published (their terms bar redistribution)
+data/frame/monitor_run.txt
+*.jsonl.lock
+data/testdata/
+# private recordings (Polymarket data may not be redistributed)
+polysim-recordings-*
 recordings/
+data/hfdata/
+data/frame/board_snapshot.json
+.venv/.tests-ok

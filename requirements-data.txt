@@ -1,0 +1,2 @@
+﻿# Optional: only for frame.hfdata (querying the SII-WANGZJ Polymarket_data dataset remotely)
+duckdb>=1.1

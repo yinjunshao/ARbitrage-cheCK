@@ -1,0 +1,4 @@
+# The core package, tests and web app use the Python standard library only.
+# Optional:
+pytest>=7          # run the tests
+anthropic>=0.40    # --llm: let Claude read the rules
