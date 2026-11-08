@@ -28,24 +28,49 @@ class Config:
     narrate_model: str = os.getenv("FRAME_NARRATE_MODEL", _DEFAULT_MODEL)
     temperature: float = float(os.getenv("FRAME_TEMPERATURE", "0.1"))
     max_output_tokens: int = int(os.getenv("FRAME_MAX_TOKENS", "4096"))
+    llm_timeout_s: float = float(os.getenv("FRAME_LLM_TIMEOUT_S", "60"))   # per Gemini request
 
     # "arbcheck" = the real numeric core in arbcheck-project/ ; "fake" = fixed placeholders (unit tests).
     core: str = os.getenv("FRAME_CORE", "arbcheck")
     kalshi_member: bool = os.getenv("FRAME_KALSHI_MEMBER", "0") == "1"
 
-    top_k: int = int(os.getenv("FRAME_TOP_K", "8"))
-    date_window_days: int = int(os.getenv("FRAME_DATE_WINDOW_DAYS", "7"))
+    top_k: int = int(os.getenv("FRAME_TOP_K", "5"))
+    # Cross-event candidate window: kept equal to rule R6's limit so R6, not a silent filter, decides.
+    date_window_days: int = int(os.getenv("FRAME_DATE_WINDOW_DAYS", os.getenv("FRAME_MAX_CLOSE_GAP_DAYS", "14")))
+    min_similarity: float = float(os.getenv("FRAME_MIN_SIMILARITY", "0.45"))
+    max_judge_per_scan: int = int(os.getenv("FRAME_MAX_JUDGE_PER_SCAN", "30"))  # LLM budget; rest retried next scan
+    max_sets_per_scan: int = int(os.getenv("FRAME_MAX_SETS_PER_SCAN", "8"))     # venue exclusive sets priced (no LLM)
+    # What to scan (the app's checkboxes start from these; the monitor uses them as they are).
+    # FRAME_VENUES: polymarket,kalshi  ·  FRAME_CATEGORIES: all, or e.g. crypto,sports,politics
+    # FRAME_SPORTS_LEAGUES: Polymarket sport tags, e.g. premier-league,nba
+    scan_venues: tuple[str, ...] = tuple(v.strip() for v in os.getenv("FRAME_VENUES", "polymarket,kalshi,novig").split(",") if v.strip())
+    scan_categories: tuple[str, ...] = tuple(c.strip() for c in os.getenv("FRAME_CATEGORIES", "all").split(",") if c.strip())
+    sports_leagues: tuple[str, ...] = tuple(s.strip() for s in os.getenv("FRAME_SPORTS_LEAGUES", "premier-league").split(",") if s.strip())
+    max_screens_per_scan: int = int(os.getenv("FRAME_MAX_SCREENS_PER_SCAN", "40"))  # ladders / game links (no LLM)
+    watch_tick_s: int = int(os.getenv("FRAME_WATCH_TICK_S", "30"))     # how often the watch loop looks for due items
+    max_singles_per_scan: int = int(os.getenv("FRAME_MAX_SINGLES_PER_SCAN", "30"))  # "Yes + No under $1" checks (no LLM)
     judge_concurrency: int = int(os.getenv("FRAME_JUDGE_CONCURRENCY", "4"))
     fewshot_k: int = int(os.getenv("FRAME_FEWSHOT_K", "5"))
     min_surface_confidence: str = "medium"  # surface only medium/high to review
-    excluded_categories: tuple[str, ...] = ("crypto",)
+    # Crypto is allowed, but only paired with crypto of the same coin (frame/rules.py).
+    excluded_categories: tuple[str, ...] = ()
+    monitor_every_s: int = int(os.getenv("FRAME_MONITOR_EVERY_S", "300"))
+    # Time rules R5/R6: only suggest pairs that resolve soon and at about the same time.
+    max_days_to_close: int = int(os.getenv("FRAME_MAX_DAYS_TO_CLOSE", "45"))
+    max_close_gap_days: int = int(os.getenv("FRAME_MAX_CLOSE_GAP_DAYS", "14"))
 
     audit_path: Path = DATA / "audit.jsonl"
     labels_path: Path = DATA / "labels.jsonl"
+    suggestions_path: Path = DATA / "suggestions.jsonl"
+    confirmed_path: Path = DATA / "confirmed.jsonl"
+    watch_path: Path = DATA / "watchlist.json"
+    board_path: Path = DATA / "board_snapshot.json"
+    # The app scans live data by itself: once at start (unless a saved scan is fresh) and then every N seconds.
+    autoscan: bool = os.getenv("FRAME_AUTOSCAN", "1") != "0"
+    autoscan_every_s: int = int(os.getenv("FRAME_AUTOSCAN_EVERY_S", "900"))
     cache_dir: Path = DATA / "cache"
-    fixtures_dir: Path = DATA / "fixtures"
-    # recorded Gemini outputs on arbcheck's demo universe (scripts/record_replay.py)
-    replay_file: Path = DATA / "fixtures" / "llm_replay.json"
+    fixtures_dir: Path = ROOT / "tests" / "frame" / "fixtures"      # test-only sample data
+    replay_file: Path = ROOT / "tests" / "frame" / "fixtures" / "llm_replay_sample.json"
 
 
 def get_config() -> Config:

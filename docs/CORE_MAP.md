@@ -10,7 +10,8 @@
 | Frame call (`CoreAdapter`) | arbcheck code it uses |
 |---|---|
 | `price(relation, budget) -> CoreResult` | `pipeline.evaluate_case(markets, Relation, Guard(Limits(max_notional=budget)), now, log=DecisionLog)` → `Case.arb: ArbResult`, `Case.decision: Decision` |
-| `list_open_markets(venues)` | demo: `demo_data.demo_markets()`; live: `polymarket.fetch_stubs(limit)` (through `compliance.ReadOnlyClient`) |
+| `list_open_markets(venues)` | live: `GET gamma /events` (top by 24h volume, small pages under the client's 5 MB cap) → `polymarket.stubs_from_event`; Kalshi (members) `GET /events?with_nested_markets` → `kalshi.market_from`; all through `compliance.ReadOnlyClient`. Event tags/category kept for the suggestion rules. Tests only: `demo_data.demo_markets()` |
+| `cheap_link(a, b)` | `relations.HeuristicExtractor().extract` (no LLM): which pairs inside one event go to the judge |
 | `resolve(line)` | `venues.Registry.resolve` (links parsed locally, never fetched; words searched with the ≥35% overlap rule) |
 | order books | `Registry.hydrate` at price time (live only) |
 | `compare_rules` | not reused: `relations.LLMExtractor` is Anthropic-shaped and fuses relation + flags; the frame's Gemini `rulediff` returns per-topic verified quotes instead |
@@ -58,4 +59,5 @@ real core passes and the audit chain verifies.
 
 - Live venue calls (core README: adapters were only tested on canned JSON). `--live` is the first real run.
 - Kalshi live: only via links/search (arbcheck has no Kalshi "list all" call), and only with `--kalshi-member`.
-- Crypto exclusion on live Polymarket is a heuristic in the adapter (fee k=0.07 or crypto words), since stubs carry no category.
+- Categories come from Polymarket event tags and Kalshi event categories; markets reached by link/search get
+  their event's tags with one extra lookup. A market whose tags map to nothing is "unknown" and rule R4 refuses it.

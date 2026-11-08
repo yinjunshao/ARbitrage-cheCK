@@ -1,0 +1,92 @@
+"""Monitor live markets on a loop.  Paper only: nothing here places orders.
+
+    python -m frame.monitor                    # every FRAME_MONITOR_EVERY_S seconds (default 300)
+    python -m frame.monitor --once             # one cycle, then exit
+    python -m frame.monitor --kalshi-member    # include Kalshi for this run (or FRAME_KALSHI_MEMBER=1 in .env)
+
+Each cycle:
+  1. scan: pull open events through arbcheck's read-only client, generate candidates, apply the
+     suggestion rules, judge up to FRAME_MAX_JUDGE_PER_SCAN new pairs with Gemini (cached verdicts are free);
+  2. re-price every human-confirmed relation on fresh order books with the core (no LLM);
+  3. write everything to data/frame/suggestions.jsonl (hash-chained) and print a summary.
+New suggestions still need a human to confirm them in the app before the core prices them.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from dataclasses import replace
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from frame.config import get_config  # noqa: E402
+from frame.pipeline import build  # noqa: E402
+
+
+def cycle(p, budget: float) -> None:
+    t0 = time.time()
+    s = p.scan()
+    print(f"[{s.scan}] {s.markets} markets | {s.candidates} candidates | {s.rule_refused} refused by rules | "
+          f"{s.judged} judged | {s.surfaced} for review | {s.deferred} deferred ({time.time() - t0:.0f}s)", flush=True)
+    for n in s.notes:
+        print(f"   note: {n}", flush=True)
+    print(f"   {s.sets} venue-declared exclusive sets and {s.singles} single markets (Yes + No) priced by the core (no LLM)",
+          flush=True)
+    print(f"   {s.screened} ladders / in-game links screened by the core (no LLM); {s.escalated} showed a gap and went "
+          f"to Gemini. Watch list: {len(p.watch.items)} items.", flush=True)
+    for h in s.set_hits:
+        print(f"   SET {h}", flush=True)
+    for c in p.review_queue():
+        v = c.judged.verdict
+        print(f"   suggest [{v.relation}/{v.confidence}] {c.judged.a.title[:60]}  <->  {c.judged.b.title[:60]}", flush=True)
+    for rel, core, err in p.reprice_confirmed(budget):
+        names = " <-> ".join(l.title[:45] for l in rel.legs)
+        print(f"   reprice {names}: " + (f"{core.verdict} | {core.headline}" if core else f"error: {err}"), flush=True)
+
+
+def main(argv=None) -> None:
+    ap = argparse.ArgumentParser(prog="frame.monitor")
+    ap.add_argument("--every", type=int, default=None, help="seconds between cycles")
+    ap.add_argument("--once", action="store_true")
+    ap.add_argument("--kalshi-member", action="store_true")
+    ap.add_argument("--budget", type=float, default=300.0, help="max notional per re-priced relation ($)")
+    args = ap.parse_args(argv)
+    cfg = get_config()
+    if args.kalshi_member:
+        cfg = replace(cfg, kalshi_member=True)
+    every = args.every or cfg.monitor_every_s
+    p = build(cfg=cfg)
+    p.on_status = lambda t: print(f"   … {t}", flush=True)
+    print(f"Monitoring live markets (paper only). Kalshi {'ON' if cfg.kalshi_member else 'off'}. "
+          f"Judge model {cfg.judge_model}. Log: {cfg.suggestions_path}", flush=True)
+    print(f"Smart loop: a full scan for NEW candidates every {every}s; every {cfg.watch_tick_s}s, re-check what is due on "
+          f"the watch list ({len(p.watch.items)} items loaded). Closer to the deadline = checked more often.", flush=True)
+    p.on_status = None            # the loop prints its own summaries; the per-step status is too chatty here
+    next_scan = 0.0
+    while True:
+        try:
+            if time.time() >= next_scan:
+                cycle(p, args.budget)
+                next_scan = time.time() + every
+            for it, core, err in p.watch_tick(args.budget):
+                tag = "LIVE " if it.live else ""
+                if err:
+                    print(f"   watch {tag}{it.title[:60]}: error {err}", flush=True)
+                elif core.verdict in ("worth_a_look", "look_closely") or core.naive_edge > 0:
+                    print(f"   *** WATCH HIT {tag}[{it.arb_type}] {it.title[:60]}: {core.verdict} | {core.headline}", flush=True)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:  # a bad cycle never kills the monitor
+            print(f"   cycle failed: {type(e).__name__}: {e}", flush=True)
+        if args.once:
+            break
+        time.sleep(cfg.watch_tick_s)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nStopped.")

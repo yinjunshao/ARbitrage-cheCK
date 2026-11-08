@@ -12,17 +12,20 @@ def pipe(cfg, monkeypatch):
 
 def test_candidates_cross_venue_and_within_event(markets):
     ms = [m for m in markets.values() if m.category != "crypto"]
-    pairs = {(a.id, b.id) for a, b, _ in cand.generate(ms, cand.HashingEmbedder(), 8, 7)}
+    pairs = {(a.id, b.id) for a, b, *_ in cand.generate(ms, cand.HashingEmbedder(), 8, 7)}
     assert ("SAMPLE-pm-ukge-mar27", "SAMPLE-pm-ukge-jun27") in pairs  # within event
     assert ("SAMPLE-pm-fed-dec26", "SAMPLE-KXFED-26DEC") in pairs     # cross venue
     assert not any("KXEPL" in a + b for a, b in pairs)                # category/date blocking
 
 
 def test_end_to_end_replay(pipe):
-    cases = pipe.scan()
+    summary = pipe.scan()
     queue = {c.judged.a.id: c for c in pipe.review_queue()}
     assert set(queue) == {"SAMPLE-pm-fed-dec26", "SAMPLE-pm-ukge-mar27"}
-    assert not any("crypto" in c.judged.a.id + c.judged.b.id for c in cases)
+    assert not any("crypto" in c.judged.a.id + c.judged.b.id for c in pipe.cases.values())
+    assert summary.judged == 2 and summary.surfaced == 2
+    kinds = pipe.suggestions.counts()
+    assert kinds["candidate"] == 2 and kinds["judged"] == 2 and kinds["surfaced"] == 2
 
     case = queue["SAMPLE-pm-fed-dec26"]
     with pytest.raises(TransitionError):

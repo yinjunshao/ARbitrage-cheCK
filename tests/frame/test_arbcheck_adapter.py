@@ -104,7 +104,7 @@ def test_pipeline_end_to_end_with_real_core(cfg, monkeypatch):
             return {"overall": "compatible", "differences": []}
         return None  # narrate -> deterministic template
 
-    p = build(demo=True, cfg=replace(cfg, core="arbcheck"), llm=FakeLLM(responder))
+    p = build(demo=True, cfg=replace(cfg, core="arbcheck", max_days_to_close=3650, max_close_gap_days=3650), llm=FakeLLM(responder))
     p.scan()
     q = p.review_queue()
     assert len(q) == 1 and q[0].judged.a.id == "orion-dec"

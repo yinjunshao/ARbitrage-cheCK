@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from typing import Protocol
 
@@ -69,52 +69,68 @@ def _dt(s: str | None) -> datetime | None:
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        d = datetime.fromisoformat(s.replace("Z", "+00:00").replace(" ", "T"))
     except ValueError:
         return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)   # mixing naive and aware times raised TypeError
 
 
 def blocked_ok(a: Market, b: Market, window_days: int) -> bool:
-    if a.category and b.category and a.category.lower() != b.category.lower():
-        return False
+    """Date blocking only. Category/type rules live in frame/rules.py so every refusal is logged."""
     da, db = _dt(a.close_time_utc), _dt(b.close_time_utc)
     if da and db and abs(da - db) > timedelta(days=window_days):
         return False
     return True
 
 
-def cross_venue_candidates(markets: list[Market], embedder: Embedder, k: int = 8,
-                           window_days: int = 7) -> list[tuple[Market, Market, float]]:
+def _event(m: Market) -> tuple[str, str]:
+    return (m.venue, m.event_id or f"solo:{m.id}")
+
+
+def cross_event_candidates(markets: list[Market], embedder: Embedder, k: int = 8, window_days: int = 7,
+                           min_similarity: float = 0.0) -> list[tuple[Market, Market, float, str]]:
+    """Top-k most similar markets from OTHER events (same venue or another venue)."""
     if len(markets) < 2:
         return []
     E = embedder.embed([embed_text(m) for m in markets])
     S = E @ E.T
     seen, out = set(), []
     for i, a in enumerate(markets):
-        order = np.argsort(-S[i])
         taken = 0
-        for j in order:
-            b = markets[int(j)]
-            if int(j) == i or b.venue == a.venue or not blocked_ok(a, b, window_days):
+        for j in np.argsort(-S[i]):
+            j = int(j)
+            if S[i, j] < min_similarity:
+                break
+            b = markets[j]
+            if j == i or _event(a) == _event(b) or not blocked_ok(a, b, window_days):
                 continue
             key = tuple(sorted((f"{a.venue}:{a.id}", f"{b.venue}:{b.id}")))
             if key not in seen:
                 seen.add(key)
-                out.append((a, b, float(S[i, j])))
+                out.append((a, b, float(S[i, j]), "cross_venue" if a.venue != b.venue else "cross_event"))
             taken += 1
             if taken >= k:
                 break
     return sorted(out, key=lambda t: -t[2])
 
 
-def within_event_candidates(markets: list[Market]) -> list[tuple[Market, Market, float]]:
-    """Nested deadlines / thresholds / exhaustive sets live inside one event group."""
+def within_event_candidates(markets: list[Market], link_filter=None,
+                            max_per_event: int = 30) -> list[tuple[Market, Market, float, str]]:
+    """Nested deadlines / thresholds live inside one event group. With `link_filter` (the core's cheap
+    deterministic check) only linked pairs are kept, so a 100-outcome event does not flood the judge."""
     groups: dict[tuple[str, str], list[Market]] = {}
     for m in markets:
         if m.event_id:
             groups.setdefault((m.venue, m.event_id), []).append(m)
-    return [(a, b, 1.0) for g in groups.values() for a, b in combinations(g, 2)]
+    out = []
+    for g in groups.values():
+        pairs = [(a, b) for a, b in combinations(g, 2) if link_filter is None or link_filter(a, b)]
+        out += [(a, b, 1.0, "within_event") for a, b in pairs[:max_per_event]]
+    return out
 
 
-def generate(markets: list[Market], embedder: Embedder, k: int, window_days: int) -> list[tuple[Market, Market, float]]:
-    return within_event_candidates(markets) + cross_venue_candidates(markets, embedder, k, window_days)
+def generate(markets: list[Market], embedder: Embedder, k: int, window_days: int, min_similarity: float = 0.0,
+             link_filter=None) -> list[tuple[Market, Market, float, str]]:
+    """-> (a, b, similarity, how) with how in within_event | cross_event | cross_venue."""
+    return (within_event_candidates(markets, link_filter)
+            + cross_event_candidates(markets, embedder, k, window_days, min_similarity))

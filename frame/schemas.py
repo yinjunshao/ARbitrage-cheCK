@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Venue = Literal["polymarket", "kalshi", "manifold", "predictit", "manual"]
+Venue = Literal["polymarket", "kalshi", "manifold", "predictit", "novig", "manual"]
 RelationType = Literal[
     "same_event", "a_implies_b", "b_implies_a", "mutually_exclusive", "exhaustive_set", "unrelated", "unclear"
 ]
@@ -29,13 +29,20 @@ class Market(BaseModel):
     outcome_label: str = "Yes"
     rules_text: str = ""
     close_time_utc: str | None = None  # ISO 8601
-    category: str | None = None
+    category: str | None = None   # canonical, see frame/categories.py
+    tags: list[str] = []          # raw venue tags / category, kept for the crypto-asset rule
     yes_bid: float | None = None
     yes_ask: float | None = None
     no_bid: float | None = None
     no_ask: float | None = None
     depth: float | None = None  # manual entry only: shares available at the quoted ask
     url: str | None = None
+    # Sports (Polymarket game events): kickoff, the venue's game id, league and market type.
+    start_time_utc: str | None = None
+    game_id: str | None = None
+    league: str | None = None
+    sport_type: str | None = None   # e.g. moneyline, soccer_exact_score, soccer_halftime_result
+    prob: float | None = None       # the venue's displayed probability (a screen only; never a verdict number)
 
 
 # ---------- LLM output schemas ----------
@@ -117,6 +124,11 @@ class CoreResult(BaseModel):
     Units (arbcheck): prices and edges are dollars per share (0.01 = 1 cent); ret/ann_ret are fractions.
     """
     verdict: CoreVerdict
+    family: str = ""            # the core's own label: same-market | multi-outcome | cross-platform | logical
+    # What each leg would cost: [{venue, side, title, url, price (best ask), avg (over the fills), fee, depth ($)}].
+    # `levels` = the ask levels the core walked, per leg, for the calculator's size curve.
+    quotes: list[dict] = []
+    levels: list[list[list[float]]] = []
     status: str                 # raw guard status: OK | WARN | BLOCKED | NO_ARB
     headline: str               # the guard's own sentence
     kind: str                   # core relation kind
