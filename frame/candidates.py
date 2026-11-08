@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from itertools import combinations
 from typing import Protocol
 
@@ -69,9 +69,10 @@ def _dt(s: str | None) -> datetime | None:
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        d = datetime.fromisoformat(s.replace("Z", "+00:00").replace(" ", "T"))
     except ValueError:
         return None
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)   # mixing naive and aware times raised TypeError
 
 
 def blocked_ok(a: Market, b: Market, window_days: int) -> bool:

@@ -35,10 +35,13 @@ class Config:
     kalshi_member: bool = os.getenv("FRAME_KALSHI_MEMBER", "0") == "1"
 
     top_k: int = int(os.getenv("FRAME_TOP_K", "5"))
-    date_window_days: int = int(os.getenv("FRAME_DATE_WINDOW_DAYS", "7"))
+    # Cross-event candidate window: kept equal to rule R6's limit so R6, not a silent filter, decides.
+    date_window_days: int = int(os.getenv("FRAME_DATE_WINDOW_DAYS", os.getenv("FRAME_MAX_CLOSE_GAP_DAYS", "14")))
     min_similarity: float = float(os.getenv("FRAME_MIN_SIMILARITY", "0.45"))
     max_judge_per_scan: int = int(os.getenv("FRAME_MAX_JUDGE_PER_SCAN", "30"))  # LLM budget; rest retried next scan
     max_sets_per_scan: int = int(os.getenv("FRAME_MAX_SETS_PER_SCAN", "8"))     # venue exclusive sets priced (no LLM)
+    max_screens_per_scan: int = int(os.getenv("FRAME_MAX_SCREENS_PER_SCAN", "40"))  # ladders / game links (no LLM)
+    watch_tick_s: int = int(os.getenv("FRAME_WATCH_TICK_S", "30"))     # how often the watch loop looks for due items
     max_singles_per_scan: int = int(os.getenv("FRAME_MAX_SINGLES_PER_SCAN", "30"))  # "Yes + No under $1" checks (no LLM)
     judge_concurrency: int = int(os.getenv("FRAME_JUDGE_CONCURRENCY", "4"))
     fewshot_k: int = int(os.getenv("FRAME_FEWSHOT_K", "5"))
@@ -54,6 +57,7 @@ class Config:
     labels_path: Path = DATA / "labels.jsonl"
     suggestions_path: Path = DATA / "suggestions.jsonl"
     confirmed_path: Path = DATA / "confirmed.jsonl"
+    watch_path: Path = DATA / "watchlist.json"
     cache_dir: Path = DATA / "cache"
     fixtures_dir: Path = ROOT / "tests" / "frame" / "fixtures"      # test-only sample data
     replay_file: Path = ROOT / "tests" / "frame" / "fixtures" / "llm_replay_sample.json"

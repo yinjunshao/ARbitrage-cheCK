@@ -37,6 +37,12 @@ class Market(BaseModel):
     no_ask: float | None = None
     depth: float | None = None  # manual entry only: shares available at the quoted ask
     url: str | None = None
+    # Sports (Polymarket game events): kickoff, the venue's game id, league and market type.
+    start_time_utc: str | None = None
+    game_id: str | None = None
+    league: str | None = None
+    sport_type: str | None = None   # e.g. moneyline, soccer_exact_score, soccer_halftime_result
+    prob: float | None = None       # the venue's displayed probability (a screen only; never a verdict number)
 
 
 # ---------- LLM output schemas ----------

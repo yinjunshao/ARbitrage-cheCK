@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import os
 import sys
 import time
 from pathlib import Path
@@ -14,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from nicegui import ui  # noqa: E402
 
-from frame import arbtypes  # noqa: E402
+from frame import arbtypes, priority, sports  # noqa: E402
 from frame.pipeline import Pipeline, build  # noqa: E402
 from frame.schemas import Market  # noqa: E402
 
@@ -22,6 +24,7 @@ RELATIONS = ["same_event", "a_implies_b", "b_implies_a", "mutually_exclusive", "
 USER = "analyst"
 P: Pipeline | None = None
 SCANNING = False   # one scan at a time, shared by every open tab
+SPORTS_FEED: tuple[list, list] = ([], [])   # optional external score feed, refreshed by the background loop
 MODE = "live"
 VERDICT_STYLE = {"worth_a_look": "bg-green-100 text-green-900", "look_closely": "bg-amber-100 text-amber-900",
                  "blocked": "bg-red-100 text-red-900", "nothing_to_do": "bg-slate-100 text-slate-800"}
@@ -43,19 +46,55 @@ def banner():
             ui.label("FAKE CORE: placeholder numbers.").classes("text-red-700 font-bold")
         if getattr(P.adapter, "demo", False):
             ui.label("TEST MARKETS: invented.").classes("text-red-700 font-bold")
-        ui.label(f"LIVE data · Polymarket on · Kalshi {'ON' if P.cfg.kalshi_member else 'off (set FRAME_KALSHI_MEMBER=1 in .env)'} · "
+        if MODE == "testdata":
+            ui.label("TEST DATA from data/testdata/normalized (downloaded files, not live)").classes("text-red-700 font-bold")
+        ui.label(f"{'TEST' if MODE == 'testdata' else 'LIVE'} data · Polymarket on · Kalshi {'ON' if P.cfg.kalshi_member else 'off (set FRAME_KALSHI_MEMBER=1 in .env)'} · "
                  f"LLM {P.cfg.judge_model} · core {P.adapter.name}")
 
 
-def market_card(m: Market, quotes: list[str]):
+def _sentences(text: str) -> list[str]:
+    import re
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text or "") if s.strip()]
+
+
+def _highlight(text: str, quotes: list[str]) -> str:
+    for q in quotes:  # highlight verified quotes
+        if q and q in text:
+            text = text.replace(q, f"**{q}**")
+    return text
+
+
+def market_card(m: Market, quotes: list[str], only: list[str] | None = None):
+    """One market. `only` = the sentences of its rules that differ from the other market (None = show all)."""
     with ui.card().classes("w-[48%]"):
         ui.label(f"{m.venue.upper()} · {m.title}").classes("font-bold")
-        ui.label(f"closes {m.close_time_utc or '?'} · Yes bid/ask {m.yes_bid}/{m.yes_ask}").classes("text-xs text-gray-500")
-        text = m.rules_text or "(no rules text)"
-        for q in quotes:  # highlight verified quotes
-            if q and q in text:
-                text = text.replace(q, f"**{q}**")
-        ui.markdown(text).classes("text-sm")
+        prices = (f"Yes bid/ask {m.yes_bid}/{m.yes_ask}" if m.yes_ask is not None
+                  else "prices are read from the live books when the core prices it")
+        ui.label(f"closes {m.close_time_utc or '?'} · {prices}").classes("text-xs text-gray-500")
+        if only is None:
+            ui.markdown(_highlight(m.rules_text or "(no rules text)", quotes)).classes("text-sm")
+        elif only:
+            ui.label("Only in this market's rules:").classes("text-xs font-bold text-indigo-700")
+            ui.markdown(_highlight(" ".join(only), quotes)).classes("text-sm")
+        else:
+            ui.label("Rules identical to the other market (see below).").classes("text-xs text-gray-500")
+
+
+def pair_view(a: Market, b: Market, ev_a: list[str], ev_b: list[str]):
+    """Two markets side by side WITHOUT repeating what they share: wording common to both rule texts is shown
+    once underneath, and each card shows only the sentences that differ (usually the date or threshold)."""
+    sa, sb = _sentences(a.rules_text), _sentences(b.rules_text)
+    common = [s for s in sa if s in set(sb)]
+    if len(common) < 2:                      # too little shared: show both in full
+        with ui.row().classes("w-full"):
+            market_card(a, ev_a)
+            market_card(b, ev_b)
+        return
+    with ui.row().classes("w-full"):
+        market_card(a, ev_a, [s for s in sa if s not in set(sb)])
+        market_card(b, ev_b, [s for s in sb if s not in set(sa)])
+    with ui.expansion(f"Rules both markets share ({len(common)} sentences)", icon="content_copy").classes("w-full text-sm"):
+        ui.markdown(_highlight(" ".join(common), ev_a + ev_b)).classes("text-sm")
 
 
 @ui.page("/")
@@ -91,7 +130,7 @@ def check_page():
                 return
             SCANNING, spinner.visible = True, True
             btn.disable()
-            status.set_text("Scanning live markets (usually 1–3 minutes).")
+            status.set_text("Scanning live markets (usually 2–5 minutes; the watch list keeps re-checking in between).")
             from nicegui import run
             try:
                 s = await run.io_bound(P.scan, ["polymarket", "kalshi"])
@@ -177,6 +216,7 @@ class busy:
 CONF_RANK = {"high": 0, "medium": 1, "low": 2}
 VERDICT_RANK = {"worth_a_look": 0, "look_closely": 1, "blocked": 2, "nothing_to_do": 3}
 CAND_SORTS = {
+    "Smart (recommended)": lambda c: -priority.score_case(c)[0],
     "Confidence (high first)": lambda c: (CONF_RANK.get(c.judged.verdict.confidence, 3), -c.similarity),
     "Most similar": lambda c: -c.similarity,
     "Closing soonest": lambda c: min(c.judged.a.close_time_utc or "9", c.judged.b.close_time_utc or "9"),
@@ -185,6 +225,7 @@ CAND_SORTS = {
                                  CONF_RANK.get(c.judged.verdict.confidence, 3)),
 }
 FIND_SORTS = {
+    "Smart (recommended)": lambda f: -priority.score_finding(f)[0],
     "Best verdict first": lambda f: (VERDICT_RANK[f.core.verdict], -f.core.avg_edge),
     "Biggest edge after costs": lambda f: -f.core.avg_edge,
     "Highest price-only gap": lambda f: -f.core.naive_edge,
@@ -202,8 +243,8 @@ def type_chip(t: str):
 @ui.page("/candidates")
 def candidates_page():
     banner()
-    f = {"type": "all", "cat": "all", "conf": "any", "how": "any", "sort": "Confidence (high first)",
-         "fsort": "Best verdict first"}
+    f = {"type": "all", "cat": "all", "conf": "any", "how": "any", "sort": "Smart (recommended)",
+         "fsort": "Smart (recommended)", "epl": False}
     with ui.column().classes("p-4 w-full"):
         ui.label("Opportunities").classes("text-2xl font-bold")
         cats = sorted({c.category for c in P.cases.values()} | {x.category for x in P.findings.values()})
@@ -215,24 +256,105 @@ def candidates_page():
                       on_change=lambda e: (f.update(cat=e.value), listing.refresh())).classes("w-44")
             ui.select({"any": "Any confidence", "medium": "Medium or high", "high": "High only"}, value="any",
                       label="Confidence", on_change=lambda e: (f.update(conf=e.value), listing.refresh())).classes("w-44")
-            ui.select({"any": "Any source", "cross_venue": "Cross-venue", "within_event": "Within one event",
-                       "cross_event": "Across events", "user": "Typed by you"}, value="any", label="Found by",
+            ui.select({"any": "Any source", "cross_venue": "Cross-venue", "within_event": "Date/threshold ladder",
+                       "game_link": "Inside one game", "cross_event": "Across events", "user": "Typed by you"},
+                      value="any", label="Found by",
                       on_change=lambda e: (f.update(how=e.value), listing.refresh())).classes("w-44")
             ui.select(list(CAND_SORTS), value=f["sort"], label="Sort suggestions by",
                       on_change=lambda e: (f.update(sort=e.value), listing.refresh())).classes("w-56")
             ui.select(list(FIND_SORTS), value=f["fsort"], label="Sort priced results by",
                       on_change=lambda e: (f.update(fsort=e.value), listing.refresh())).classes("w-56")
-        listing = ui.refreshable(lambda: _listing(f))
-        listing()
+            ui.switch("Premier League only", on_change=lambda e: (f.update(epl=e.value), listing.refresh()))
+        # The live part (alerts, games, watch list) refreshes on its own every 20 s; the lists below only when a
+        # filter changes, so nothing you type into a candidate card is wiped.
+        top = ui.refreshable(lambda: _top(f))
+        top()
+        ui.timer(20, top.refresh)
+        body = ui.refreshable(lambda: _listing(f))
+        body()
+
+        class _Both:
+            @staticmethod
+            def refresh():
+                top.refresh()
+                body.refresh()
+        listing = _Both
 
 
-def _keep(c_type: str, category: str, f: dict) -> bool:
+def _keep(c_type: str, category: str, f: dict, legs=()) -> bool:
+    if f.get("epl") and not any(getattr(m, "league", None) == "premier-league" or
+                                (isinstance(m, dict) and m.get("league") == "premier-league") for m in legs):
+        return False
     return f["type"] in ("all", c_type) and f["cat"] in ("all", category)
+
+
+def priority_badge(score: float, why: list[str]):
+    with ui.badge(f"priority {score:.0f}").props("color=teal outline"):
+        ui.tooltip(" · ".join(why) or "no signal yet")
+
+
+def _sports_panel(f: dict):
+    games = dict(getattr(P.adapter, "live_games", {}) or {})
+    ext, notes = SPORTS_FEED          # filled by the background loop, never fetched in the page itself
+    if not games and not ext:
+        return
+    with ui.expansion(f"Premier League and other games ({len(games)} from Polymarket"
+                      + (f", {len(ext)} from the score feed" if ext else "") + ")", icon="sports_soccer", value=True
+                      ).classes("w-full border rounded"):
+        ui.label("Games resolve within hours, and the research found sports arbitrage concentrated in the final minutes "
+                 "of play, so games in play are re-checked every minute. Scores from Polymarket's own game data; the "
+                 "optional feed adds minute-by-minute events.").classes("text-xs text-gray-500")
+        rows = []
+        for gid, g in sorted(games.items(), key=lambda kv: kv[1].get("start") or ""):
+            rows.append({"game": g["title"], "kickoff": (g.get("start") or "")[:16].replace("T", " "),
+                         "state": "LIVE" if g.get("live") else ("ended" if g.get("ended") else "upcoming"),
+                         "score": g.get("score") or "", "minute": g.get("elapsed") or g.get("period") or "",
+                         "league": g.get("league") or "", "source": g.get("source", "")})
+        for g in ext:
+            rows.append({"game": g["title"], "kickoff": (g.get("start") or "")[:16].replace("T", " "),
+                         "state": g.get("status") or "", "score": g.get("score") or "", "minute": g.get("minute") or "",
+                         "league": "premier-league", "source": g["source"] + (" · " + " | ".join(g["events"]) if g["events"] else "")})
+        cols = [{"name": k, "label": k, "field": k, "align": "left"} for k in ("state", "kickoff", "game", "score", "minute", "league", "source")]
+        ui.table(columns=cols, rows=rows[:40]).props("dense flat").classes("w-full")
+        for n in notes:
+            ui.label(n).classes("text-xs text-orange-700")
+
+
+def _watch_section(f: dict):
+    items = [i for i in P.watch.items.values() if _keep(i.arb_type, i.category, f, i.legs)]
+    if not items:
+        return
+    items.sort(key=lambda i: -priority.score_watch(i)[0])
+    now = time.time()
+    with ui.expansion(f"Watching {len(items)} items: no gap yet, re-checked by the core as their deadline nears",
+                      icon="visibility").classes("w-full border rounded"):
+        ui.label("Re-check interval: 6 h if more than a week away, 1 h within a week, 20 min within 2 days, 5 min within "
+                 "a day, every minute in the last 2 hours or while a game is in play; halved when the last check was within "
+                 "1¢ of a gap. No LLM is used for these re-checks.").classes("text-xs text-gray-500")
+        rows = [{"priority": f"{priority.score_watch(i)[0]:.0f}", "type": arbtypes.label(i.arb_type), "what": i.title[:90],
+                 "last": (i.last_verdict or "-").replace("_", " "),
+                 "gap": "—" if i.last_edge is None else cents(i.last_edge),
+                 "next check": f"{max(0, i.next_due - now) / 60:.0f} min", "checks": i.checks,
+                 "live": "LIVE" if i.live else ""} for i in items[:200]]
+        cols = [{"name": k, "label": k, "field": k, "align": "left"} for k in ("priority", "live", "type", "what", "last", "gap", "next check", "checks")]
+        ui.table(columns=cols, rows=rows, pagination=15).props("dense flat").classes("w-full")
+
+
+def _top(f: dict):
+    # ---- alerts from the watch loop -----------------------------------------------------------------------
+    if P.alerts:
+        with ui.card().classes("w-full bg-green-50"):
+            ui.label(f"Watch alerts ({len(P.alerts)}): a re-check found a gap").classes("font-bold text-green-900")
+            for ts, it, core in P.alerts[:10]:
+                ui.label(f"{time.strftime('%H:%M', time.localtime(ts))} · {arbtypes.label(it.arb_type)} · {it.title[:80]} → "
+                         f"{core.verdict.replace('_', ' ')}: {core.headline}").classes("text-sm")
+    _sports_panel(f)
+    _watch_section(f)
 
 
 def _listing(f: dict):
     # ---- priced from structure alone: no LLM, nothing to confirm -------------------------------------------
-    finds = sorted((x for x in P.findings.values() if _keep(x.arb_type, x.category, f)), key=FIND_SORTS[f["fsort"]])
+    finds = sorted((x for x in P.findings.values() if _keep(x.arb_type, x.category, f, x.legs)), key=FIND_SORTS[f["fsort"]])
     ui.label(f"Priced by the core from structure alone ({len(finds)})").classes("text-lg font-bold mt-2")
     ui.label("Outcome sets the venue declares exclusive, and Yes + No of single markets. No LLM judgement is needed, "
              "so the core prices them directly.").classes("text-xs text-gray-500")
@@ -241,6 +363,7 @@ def _listing(f: dict):
     for x in finds[:60]:
         with ui.card().classes(f"w-full py-2 {VERDICT_STYLE[x.core.verdict]}"):
             with ui.row().classes("items-center w-full gap-3"):
+                priority_badge(*priority.score_finding(x))
                 type_chip(x.arb_type)
                 ui.badge(x.category).props("color=grey")
                 ui.link(x.title, f"/finding/{x.id}").classes("font-bold")
@@ -250,14 +373,14 @@ def _listing(f: dict):
         ui.label(f"…and {len(finds) - 60} more. Narrow with the filters above.").classes("text-xs text-gray-500")
 
     # ---- pairs Gemini judged: a human confirms before the core prices -----------------------------------------
-    queue = [c for c in P.review_queue() if _keep(c.arb_type, c.category, f)
+    queue = [c for c in P.review_queue() if _keep(c.arb_type, c.category, f, [c.judged.a, c.judged.b])
              and (f["conf"] == "any" or CONF_RANK.get(c.judged.verdict.confidence, 3) <= CONF_RANK[f["conf"]])
              and (f["how"] == "any" or c.how == f["how"])]
     queue.sort(key=CAND_SORTS[f["sort"]])
     hidden = sum(1 for c in P.cases.values() if c.state == "filtered")
     ui.label(f"Related pairs awaiting your confirmation ({len(queue)})").classes("text-lg font-bold mt-4")
     ui.label(f"{hidden} more were judged unrelated, unclear or low confidence and are hidden.").classes("text-xs text-gray-500")
-    done = [c for c in P.cases.values() if c.core is not None and _keep(c.arb_type, c.category, f)]
+    done = [c for c in P.cases.values() if c.core is not None and _keep(c.arb_type, c.category, f, [c.judged.a, c.judged.b])]
     if done:
         ui.label("Already priced").classes("font-bold mt-1")
         with ui.row():
@@ -273,17 +396,18 @@ def _candidate_card(c):
     v = c.judged.verdict
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center gap-2"):
+            priority_badge(*priority.score_case(c))
             type_chip(c.arb_type)
             ui.badge(f"{c.category}").props("color=grey")
+            if sports.in_play(c.judged.a) or sports.in_play(c.judged.b):
+                ui.badge("LIVE game").props("color=red")
             ui.label(f"{v.relation} · confidence {v.confidence} · {'quotes verified' if c.judged.verified else 'UNVERIFIED'}"
                      f" · found by {c.how}").classes("font-bold")
         if c.rule_note:
             ui.label(f"⚠ Suggestion rule {c.rule_note} (shown because you asked for this pair)").classes(
                 "text-orange-700 text-sm")
         ui.label(v.reasoning).classes("text-sm")
-        with ui.row().classes("w-full"):
-            market_card(c.judged.a, v.evidence_a)
-            market_card(c.judged.b, v.evidence_b)
+        pair_view(c.judged.a, c.judged.b, v.evidence_a, v.evidence_b)
         if c.rules:
             ui.label(f"Rules: {c.rules.diff.overall}" + (" (escalated by verification)" if c.rules.escalated else ""))
             for d in c.rules.diff.differences:
@@ -509,19 +633,46 @@ def log_page():
                  rows=rows).classes("w-full")
 
 
+async def _background_watch():
+    """The app's own smart loop: every FRAME_WATCH_TICK_S, re-check what is due on the watch list (core only, no
+    LLM), and refresh the optional sports score feed. Paused while a scan runs. FRAME_APP_WATCH=0 turns it off
+    (e.g. when run.bat monitor is already watching the same markets)."""
+    global SPORTS_FEED
+    from nicegui import run
+    while True:
+        await asyncio.sleep(P.cfg.watch_tick_s)
+        if SCANNING or os.getenv("FRAME_APP_WATCH", "1") == "0":
+            continue
+        try:
+            await run.io_bound(P.watch_tick)
+            if os.getenv("FOOTBALL_DATA_API_KEY") or os.getenv("FRAME_SPORTS_ESPN") == "1":
+                SPORTS_FEED = await run.io_bound(sports.external_scores)
+        except Exception as e:      # the loop never dies
+            print(f"[watch] {type(e).__name__}: {e}", flush=True)
+
+
 def main():
-    global P
+    global P, MODE
     ap = argparse.ArgumentParser()
     ap.add_argument("--kalshi-member", action="store_true", help="I am a Kalshi member running this on my own computer")
+    ap.add_argument("--testdata", action="store_true", help="use converted test data (data/testdata/normalized), not live")
     ap.add_argument("--port", type=int, default=8080)
     args, _ = ap.parse_known_args()
     from dataclasses import replace
+
+    from nicegui import app
 
     from frame.config import get_config
     cfg = get_config()
     if args.kalshi_member:
         cfg = replace(cfg, kalshi_member=True)
-    P = build(cfg=cfg)  # live venues + live Gemini
+    if args.testdata:
+        from frame import testdata
+        MODE = "testdata"
+        P = testdata.build_pipeline(cfg)        # converted files + live Gemini for judging
+    else:
+        P = build(cfg=cfg)  # live venues + live Gemini
+    app.on_startup(_background_watch)
     ui.run(title="False-Arb Checker", port=args.port, host="127.0.0.1", reload=False, show=False, dark=False)
 
 

@@ -18,3 +18,7 @@ dist/
 !tests/polysim/fixtures/*.jsonl
 data/frame/monitor_run.txt
 *.jsonl.lock
+data/testdata/
+# private recordings (Polymarket data may not be redistributed)
+polysim-recordings-*
+recordings/

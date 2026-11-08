@@ -1,4 +1,4 @@
-﻿"""Frame <-> real arbcheck core, on arbcheck's invented demo universe (offline, no LLM)."""
+"""Frame <-> real arbcheck core, on arbcheck's invented demo universe (offline, no LLM)."""
 import pytest
 
 from frame.adapter import ArbcheckAdapter, tighten

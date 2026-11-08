@@ -22,8 +22,9 @@ from .discover import discover, load_fixture_markets
 from .fewshot import FewShot, LabelStore
 from .judge import Judge, pair_id
 from .llm import LLMClient, make_llm
-from . import arbtypes
+from . import arbtypes, sports
 from .narrate import narrate, structural_narrative
+from .watch import WatchItem, WatchList, leg_dict
 from .rulediff import compare_rules
 from .rules import check_pair as rule_check
 from .schemas import CoreResult, JudgedPair, Market, NarratedResult, Relation, RelationType, VerifiedRuleDiff
@@ -94,6 +95,19 @@ class Finding:
 
 
 @dataclass
+class Screen:
+    """A code-derived logical pair (date/threshold ladder, or exact score => result) priced by the core as a
+    screen, no LLM. Shown as 'watching'; escalated to Gemini + a human only if the screen shows a gap."""
+    id: str
+    a: Market
+    b: Market
+    core: CoreResult
+    how: str
+    why: str = ""
+    scan: str = ""
+
+
+@dataclass
 class ScanSummary:
     scan: str
     markets: int = 0
@@ -104,6 +118,8 @@ class ScanSummary:
     surfaced: int = 0
     sets: int = 0
     singles: int = 0
+    screened: int = 0       # code-derived logical pairs priced by the core as a screen (no LLM)
+    escalated: int = 0      # ... of which showed a gap and were sent to Gemini
     set_hits: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -117,6 +133,9 @@ class Pipeline:
         self.judge = Judge(llm, cfg.judge_model, cfg.cache_dir, self.fewshot, cfg.judge_concurrency)
         self.cases: dict[str, Case] = {}
         self.findings: dict[str, Finding] = {}
+        self.screens: dict[str, Screen] = {}
+        self.watch = WatchList(cfg.watch_path)
+        self.alerts: list[tuple[float, WatchItem, CoreResult]] = []   # watch re-checks that showed a gap
         self.last_scan: ScanSummary | None = None
         self.status = ""            # what a running scan is doing right now
         self.on_status = None       # optional callback(text)
@@ -155,10 +174,10 @@ class Pipeline:
         self._say(f"Done in {time.time() - t0:.0f}s: {s.markets} markets, {s.surfaced} suggestions for review.")
         return s
 
-    def _rule(self, a: Market, b: Market):
-        """The suggestion rules (R1-R6) with this run's time limits."""
+    def _rule(self, a: Market, b: Market, nested: bool = False):
+        """The suggestion rules (R0-R6) with this run's time limits. nested: a ladder inside one event."""
         now_fn = getattr(self.adapter, "now", None)      # the core's clock (frozen in test mode)
-        return rule_check(a, b, now=now_fn() if now_fn else None,
+        return rule_check(a, b, now=now_fn() if now_fn else None, nested=nested,
                           horizon_days=self.cfg.max_days_to_close, gap_days=self.cfg.max_close_gap_days)
 
     def _say(self, text: str) -> None:
@@ -177,7 +196,7 @@ class Pipeline:
         allowed = []
         for a, b, sim, how in raw:
             pid = pair_id(a, b)
-            r = self._rule(a, b)
+            r = self._rule(a, b, nested=how == "within_event")
             if not r.ok:
                 s.rule_refused += 1
                 self.suggestions.rule_refused(pid, a, b, r.rule, r.reason, how, s.scan)
@@ -186,10 +205,29 @@ class Pipeline:
                 continue
             self.suggestions.candidate(pid, a, b, how, sim, s.scan)
             allowed.append((a, b, sim, how, pid))
-        s.candidates = len(allowed)
+        # Code-derived logical pairs (date/threshold ladders inside one event; exact score => result inside one
+        # game) are SCREENED by the core first, with no LLM: a ladder like "by Nov 8" vs "by Nov 9" is only an
+        # arbitrage if the earlier date is priced ABOVE the later one, which is rare. Only pairs whose screen shows
+        # a gap go on to Gemini and a human; the rest join the watch list and are re-screened as the date nears.
+        escalated: list = []
+        if getattr(self.adapter, "screen_pair", None) is not None:
+            # Pairs already on the watch list are re-checked by the watch loop, so the per-scan screening budget
+            # goes to NEW ones (otherwise the same soonest 40 would be screened every scan and the rest never).
+            ladders = [(*t, None) for t in allowed if t[3] == "within_event" and t[4] not in self.watch.items]
+            allowed = [t for t in allowed if t[3] != "within_event"]
+            links = []
+            for a, b, why in sports.game_links(markets):
+                pid = pair_id(a, b)
+                if pid not in self.cases and pid not in self.watch.items and self._rule(a, b, nested=True).ok:
+                    links.append((a, b, 1.0, "game_link", pair_id(a, b), why))
+            escalated = self._screen_many(ladders + links, s)
+        s.candidates = len(allowed) + len(escalated)
         # LLM budget, shared out evenly across categories so one busy category (crypto has the most markets)
         # can't use it all. Inside a category: cross-venue pairs first, then within-event, then by similarity.
-        todo = balanced(allowed, self.cfg.max_judge_per_scan)
+        # Screened pairs that showed a gap go first.
+        todo = escalated[: self.cfg.max_judge_per_scan]
+        todo += balanced(allowed, self.cfg.max_judge_per_scan - len(todo))
+        allowed = escalated + allowed
         s.deferred = len(allowed) - len(todo)  # their `candidate` row stands until a later scan judges them
         self._say(f"Asking Gemini about {len(todo)} of {len(allowed):,} candidate pairs ({s.rule_refused:,} refused by rules)…")
         judged = self.judge.judge_many([(a, b) for a, b, *_ in todo])
@@ -205,6 +243,89 @@ class Pipeline:
                for jp, (_, _, sim, how, _) in zip(judged, todo)]
         s.judged = len(out)
         s.surfaced = sum(c.state == "awaiting_confirm" for c in out)
+        return out
+
+    def _screen_many(self, items: list, s: ScanSummary) -> list:
+        """items: (a, b, sim, how, pid, why). Screens up to max_screens_per_scan, games in play first, then the
+        soonest to close. Returns the candidate tuples whose screen showed a gap (to be judged by Gemini)."""
+        def urgency(t):
+            a, b = t[0], t[1]
+            live = sports.in_play(a) or sports.in_play(b)
+            return (not live, min(a.close_time_utc or "9", b.close_time_utc or "9"))
+        out = []
+        for a, b, sim, how, pid, why in sorted(items, key=urgency)[: self.cfg.max_screens_per_scan]:
+            try:
+                core = self.adapter.screen_pair(a, b, why=why)
+            except Exception as e:
+                s.notes.append(f"screen {a.id}/{b.id}: {type(e).__name__}: {e}")
+                continue
+            s.screened += 1
+            self.screens[pid] = Screen(pid, a, b, core, how, why or "", s.scan)
+            self.suggestions.priced(pid, [a, b], core, event="screened")
+            self._watch(pid, "game_link" if why else "ladder", arbtypes.LOGICAL,
+                        why or f"{a.title[:60]} / {b.title[:60]}", [a, b], core, why or "")
+            if core.verdict in ("worth_a_look", "look_closely") or (core.naive_edge > 0 and core.verdict != "blocked"):
+                s.escalated += 1
+                out.append((a, b, max(sim, 0.99), how, pid))
+        return out
+
+    # ------------------------------------------------------------ the smart watch loop
+    def _watch(self, key: str, kind: str, arb_type: str, title: str, legs: list[Market], core: CoreResult | None,
+               why: str = "") -> None:
+        closes = [m.close_time_utc for m in legs if m.close_time_utc]
+        item = WatchItem(key=key, kind=kind, arb_type=arb_type, title=title, legs=[leg_dict(m) for m in legs],
+                         close=min(closes) if closes else None, why=why, category=legs[0].category or "other",
+                         live=any(sports.in_play(m) for m in legs))
+        if core is not None:
+            item.last_verdict = core.verdict
+            item.last_edge = None if item.kalshi else core.naive_edge
+        self.watch.add(item)
+
+    def watch_tick(self, budget: float = 300.0, limit: int = 15) -> list[tuple[WatchItem, CoreResult | None, str]]:
+        """Re-check the watch-list items that are due, with the core only (no LLM). Returns (item, core, error).
+        A re-check that now shows a gap is logged as `watch_hit`, kept in self.alerts, and a screened pair that
+        turns positive is sent to the Gemini queue at the next scan."""
+        out = []
+        due = self.watch.due(limit=limit)
+        for n, it in enumerate(due, 1):
+            self._say(f"Watching: re-checking {n} of {len(due)} due items with the core… ({it.title[:50]})")
+            legs = [Market(**{k: v for k, v in l.items() if k in Market.model_fields}) for l in it.legs]
+            it.live = any(sports.in_play(m) for m in legs)
+            try:
+                if it.kind == "set":
+                    core = self.adapter.price_set(legs, budget)
+                elif it.kind == "single":
+                    core = self.adapter.price_single(legs[0], budget)
+                elif it.kind in ("ladder", "game_link"):
+                    core = self.adapter.screen_pair(legs[0], legs[1], budget, why=it.why or None)
+                elif it.kind == "confirmed":
+                    rel = next((r for r in self.confirmed_relations() if r.pair_id == it.key), None)
+                    if rel is None:
+                        self.watch.items.pop(it.key, None)
+                        continue
+                    core = self.adapter.price(rel, budget)
+                else:
+                    continue
+            except Exception as e:
+                self.watch.record(it, "error", None)
+                out.append((it, None, f"{type(e).__name__}: {e}"))
+                continue
+            before = it.last_verdict
+            self.watch.record(it, core.verdict, core.naive_edge)
+            hit = core.verdict in ("worth_a_look", "look_closely") or (core.naive_edge > 0 and core.verdict != "blocked")
+            if hit or core.verdict != before:
+                self.suggestions.priced(it.key, legs, core, event="watch_hit" if hit else "watch_change")
+            if hit:
+                self.alerts.insert(0, (time.time(), it, core))
+                del self.alerts[50:]
+            if it.key in self.findings:
+                self.findings[it.key].core = core
+            if it.key in self.screens:
+                self.screens[it.key].core = core
+            out.append((it, core, ""))
+        self.watch.save()
+        if due:
+            self._say(f"Watching {len(self.watch.items)} items; {len(due)} re-checked just now.")
         return out
 
     def price_venue_sets(self, markets: list[Market], s: ScanSummary, budget: float = 300.0) -> None:
@@ -249,6 +370,7 @@ class Pipeline:
                 "Yes and No of one market pay $1 between them; the core priced buying both against the order books.")
         n = structural_narrative(core, what, arbtypes.TYPES[t]["risk"], [l.title for l in legs])
         self.findings[fid] = Finding(fid, t, legs, core, n, legs[0].category or "other", title, scan)
+        self._watch(fid, "single" if len(legs) == 1 else "set", t, title, legs, core)
 
     def check_lines(self, line_a: str, line_b: str, max_pairs: int = 6) -> tuple[list[Case], list[str]]:
         """Links or words for two events -> markets via the core's registry -> judged pairs.
@@ -270,7 +392,7 @@ class Pipeline:
         judged = self.judge.judge_many([(a, b) for _, a, b in pairs])
         cases = []
         for jp, (sim, a, b) in zip(judged, pairs):
-            r = self._rule(a, b)
+            r = self._rule(a, b, nested=bool(a.event_id and a.event_id == b.event_id))
             self.suggestions.candidate(jp.pair_id, a, b, "user", sim, "user")
             case = self._register(jp, sim, force_review=True, how="user")
             if not r.ok:
@@ -281,7 +403,7 @@ class Pipeline:
     def check_pair(self, a: Market, b: Market) -> Case:
         """User-entered pair: always shown for review, even if the judge says unrelated."""
         self._say("Asking Gemini about this pair and comparing its rules…")
-        r = self._rule(a, b)
+        r = self._rule(a, b, nested=bool(a.event_id and a.event_id == b.event_id))
         self.suggestions.candidate(pair_id(a, b), a, b, "user", 0.0, "user")
         case = self._register(self.judge.judge_pair(a, b), similarity=0.0, force_review=True, how="user")
         if not r.ok:
@@ -370,6 +492,8 @@ class Pipeline:
                                         "verdict": core.verdict, "core_version": core.core_version,
                                         "result": None if kalshi else core.model_dump()})
         self.suggestions.priced(case_id, case.relation.legs, core)
+        self._watch(case_id, "confirmed", case.arb_type, case.judged.a.title[:80], case.relation.legs, core)
+        self.watch.save()
         self._move(case, "priced", core_version=core.core_version, verdict=core.verdict)
         case.narrated = narrate(self.llm, self.cfg.narrate_model, core, case.relation, case.rules)
         self.audit.append("narrate", {"case": case_id, "source": case.narrated.source,

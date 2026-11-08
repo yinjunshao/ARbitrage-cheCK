@@ -1,39 +1,99 @@
 # False-Arb Checker on live data: LLM frame (Gemini) + numeric core (arbcheck) + polysim
 
 ```
- live venues (arbcheck read-only client)        frame (Gemini)                            arbcheck core
- discover ──► candidates ──► SUGGESTION RULES ──► judge_pair ──► compare_rules ──► [HUMAN CONFIRM] ──► evaluate_case ──► narrate
- top events    within-event   R1 no Manifold leg   verbatim       verbatim quotes                       order books, fees,   every number
- by volume,    (core-linked)  R2 crypto only with  evidence       per topic                             worlds, guard        traced to core
- with venue    + cross-event  crypto, same coin    verified
- categories    similarity     R3 same category                              every step ──► data/frame/suggestions.jsonl (hash chain)
-                              R4 category known                                            ──► data/frame/audit.jsonl
+ live venues (arbcheck read-only client)          frame                                       arbcheck core
+ discover ──► candidates ──► SUGGESTION RULES ──┬─► ladders / in-game links ──► core SCREEN (no LLM) ──► watch list
+ top events   within-event   R0 same/settled/   │       only a price inversion ──┐                       (smart loop)
+ by volume +  ladders,       closed             │                                ▼
+ Premier      cross-event,   R1 no Manifold     └─► other pairs ──► Gemini judge ──► compare_rules ──► [HUMAN CONFIRM]
+ League games cross-venue,   R2 crypto/same coin                                                        ──► evaluate_case ──► narrate
+              game links     R3 shared category      venue sets + Yes/No of one market ──► core (no LLM) ──► watch list
+                             R4 category known
+                             R5 closes ≤ 45 days     every step ──► data/frame/suggestions.jsonl (hash chain)
+                             R6 same-question pairs
+                                close ≤ 14 days apart
 ```
 
 ## Run (Windows)
 
-```bat
-run.bat                 :: tests, then the app on LIVE Polymarket data: http://127.0.0.1:8080
-run.bat kalshi          :: same plus Kalshi (Kalshi members only, on your own computer)
-run.bat monitor         :: scan live markets every 5 min, log every suggestion, re-price confirmed pairs
-run.bat monitor-kalshi  :: the monitor plus Kalshi
-run.bat test            :: arbcheck + polysim + frame tests
-run.bat core            :: arbcheck's own app (no LLM)
-```
+Double-click `run.bat` for a numbered menu:
 
-Needs `GEMINI_API_KEY` in `.env` (never in `.env.example`). There is no demo mode in the app any more; the
-invented markets exist only as test fixtures.
+| # | Mode | Gemini? |
+|---|---|---|
+| 1 | App on live markets (tests first) | judging + explanations |
+| 2 | App, Kalshi on for this run (members only) | yes |
+| 3 | Monitor: the smart watch loop, no browser | yes, for new pairs |
+| 4 | Monitor with Kalshi | yes |
+| 5 | Test data: convert downloaded files in `data/testdata/raw` | maps the file layout only |
+| 6 | Test data: the core on the converted data | **no** |
+| 7 | Test data: the app on the converted data | judging + explanations |
+| 8 | Every test | no (one live smoke test if a key is set) |
+| 9 | The core's own app | no |
 
-## Suggestion rules (`frame/rules.py`, version `suggest-rules/1`)
+`run.bat <mode>` still works (`app`, `kalshi`, `monitor`, `monitor-kalshi`, `testdata-convert`, `testdata-core`,
+`testdata-app`, `test`, `core`). Needs `GEMINI_API_KEY` in `.env` (never in `.env.example`).
+
+## The smart loop (`frame/watch.py`, `Pipeline.watch_tick`)
+
+Everything checked that shows no gap YET (venue sets, Yes + No checks, ladders, in-game links, confirmed pairs)
+joins a watch list and is re-checked by the **core only, no LLM**, on a schedule that tightens near resolution:
+
+| time to close | > 7 days | 2–7 days | 1–2 days | 2–24 h | < 2 h, or game in play |
+|---|---|---|---|---|---|
+| re-check every | 6 h | 1 h | 20 min | 5 min | 1 min |
+
+A check within 1¢ of a gap halves the interval. Closed items drop off. The monitor does a full scan for NEW
+candidates every 5 min and the due re-checks every 30 s; the app runs the same re-check loop in the background
+(`FRAME_APP_WATCH=0` turns it off when the monitor is running). A re-check that finds a gap is logged as
+`watch_hit` and shown as an alert at the top of the Opportunities page. Kalshi prices are never written to the
+watch-list file.
+
+## Sports (`frame/sports.py`)
+
+Premier League games (`FRAME_SPORTS_LEAGUES`) are pulled separately for the next `FRAME_SPORTS_DAYS`.
+- **In-game links by code:** an exact score fixes the result ("0-1" implies "Liverpool win"), so these pairs are
+  derived and screened by the core with no LLM.
+- **A game is open until kickoff + 2 h 15 min** (Polymarket sets `endDate` to kickoff, but games trade in play).
+- **Live state** comes from Polymarket's own game events, with optional football-data.org / ESPN feeds
+  (see `.env.example` and `docs/RESEARCH_NOTES.md`).
+
+## Test data (`frame/testdata.py`)
+
+Put downloaded files (JSON, JSONL, CSV) in `data/testdata/raw`.
+- Gemini maps each unfamiliar layout to our format and returns **field names only**, cached per file.
+- Code copies and validates every number.
+- `testdata-core` prices everything that needs no LLM and writes `data/testdata/report.md`.
+
+## Smart ordering (`frame/priority.py`)
+
+The default sort is a score with its reasons shown on hover. In order of weight:
+1. What the core said.
+2. How soon it resolves; a game in play scores highest.
+3. How trustworthy the link is.
+4. The type of arbitrage.
+5. Whether a watched item came close before.
+
+These weights only order the list; every number in a verdict still comes from the core.
+
+## Suggestion rules (`frame/rules.py`, version `suggest-rules/3`)
 
 | Rule | Meaning |
 |---|---|
+| R0 | Not the same market twice; neither leg effectively settled (displayed price ≥ 0.98 or ≤ 0.02) |
 | R1 | Manifold is play money: never a leg |
 | R2 | Crypto pairs only with crypto, and only the same coin (BTC with BTC) |
-| R3 | Both markets must be the same type (same category: economics, politics, sports, …) |
+| R3 | Both markets must share a category (an event tagged politics + trade-war counts as both) |
 | R4 | A category must be known on both sides; unknown is not assumed to match |
-| R5 | Both markets must close within 45 days (`FRAME_MAX_DAYS_TO_CLOSE`): arbitrage only works near the deadline, when prices are pinned by resolution and capital comes back quickly. A missing close date is refused |
-| R6 | The two must close within 14 days of each other (`FRAME_MAX_CLOSE_GAP_DAYS`): the same question over another timeframe or year is a different bet, not a price gap |
+| R5 | Both markets must close within 45 days (`FRAME_MAX_DAYS_TO_CLOSE`) and neither may have closed already; a missing close date is refused |
+| R6 | Pairs claimed to be the same question must close within 14 days of each other (`FRAME_MAX_CLOSE_GAP_DAYS`). Not applied to nested ladders inside one event, which the core screens instead |
+
+Changes from `/2` came from a rules review:
+- R0 is new.
+- R5 refuses markets that have already closed.
+- R5 and R6 measure exact time; whole-day rounding had made R6 depend on argument order.
+- R3 accepts any shared category, and more tags are mapped.
+- R6 no longer applies to nested ladders.
+- The candidate date window equals R6, so refusals are logged rather than silently filtered.
 
 Categories come from the venues themselves (Polymarket event tags, Kalshi event category), mapped to one
 vocabulary in `frame/categories.py`. Rules apply to **suggestions**. A pair you type in yourself is still

@@ -8,6 +8,14 @@ Related: [[14 Built App — How It Works]] · [[16 Live Data Sources]] · [[17 R
 
 Rules decide which pairs the app is **allowed to suggest**. They run **before any Gemini call** (so they cost nothing), and **every refusal is written to the suggestion log with the rule and the reason**.
 
+> **Updated 8 Nov: rules are now `suggest-rules/3`.**
+> - **New R0:** the same market twice, or a market already effectively settled, is refused.
+> - **R5:** also refuses markets that have already closed.
+> - **R3:** matches on any shared category.
+> - **R6:** applies only to same-question pairs; nested ladders are screened by the core instead.
+>
+> The table below is the original v2. See [[18 Smart Loop, Sports & Test Data]] for the review and the fixes.
+
 ## The six rules (`suggest-rules/2`)
 | Rule | What it refuses | Why |
 |---|---|---|

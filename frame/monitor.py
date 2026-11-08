@@ -34,6 +34,8 @@ def cycle(p, budget: float) -> None:
         print(f"   note: {n}", flush=True)
     print(f"   {s.sets} venue-declared exclusive sets and {s.singles} single markets (Yes + No) priced by the core (no LLM)",
           flush=True)
+    print(f"   {s.screened} ladders / in-game links screened by the core (no LLM); {s.escalated} showed a gap and went "
+          f"to Gemini. Watch list: {len(p.watch.items)} items.", flush=True)
     for h in s.set_hits:
         print(f"   SET {h}", flush=True)
     for c in p.review_queue():
@@ -59,16 +61,28 @@ def main(argv=None) -> None:
     p.on_status = lambda t: print(f"   … {t}", flush=True)
     print(f"Monitoring live markets (paper only). Kalshi {'ON' if cfg.kalshi_member else 'off'}. "
           f"Judge model {cfg.judge_model}. Log: {cfg.suggestions_path}", flush=True)
+    print(f"Smart loop: a full scan for NEW candidates every {every}s; every {cfg.watch_tick_s}s, re-check what is due on "
+          f"the watch list ({len(p.watch.items)} items loaded). Closer to the deadline = checked more often.", flush=True)
+    p.on_status = None            # the loop prints its own summaries; the per-step status is too chatty here
+    next_scan = 0.0
     while True:
         try:
-            cycle(p, args.budget)
+            if time.time() >= next_scan:
+                cycle(p, args.budget)
+                next_scan = time.time() + every
+            for it, core, err in p.watch_tick(args.budget):
+                tag = "LIVE " if it.live else ""
+                if err:
+                    print(f"   watch {tag}{it.title[:60]}: error {err}", flush=True)
+                elif core.verdict in ("worth_a_look", "look_closely") or core.naive_edge > 0:
+                    print(f"   *** WATCH HIT {tag}[{it.arb_type}] {it.title[:60]}: {core.verdict} | {core.headline}", flush=True)
         except KeyboardInterrupt:
             raise
         except Exception as e:  # a bad cycle never kills the monitor
             print(f"   cycle failed: {type(e).__name__}: {e}", flush=True)
         if args.once:
             break
-        time.sleep(every)
+        time.sleep(cfg.watch_tick_s)
 
 
 if __name__ == "__main__":

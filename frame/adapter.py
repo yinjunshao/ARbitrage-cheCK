@@ -14,12 +14,17 @@ The frame builds the core's `Relation` from what a HUMAN confirmed, and can only
 """
 from __future__ import annotations
 
+import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Protocol
 
+import re
+
 from .config import DATA, ROOT
+
+_DOWNWARD = re.compile(r"\((low|lowest)\)|\b(low|below|under|dip|dips|fall|falls|drop|drops|less than)\b", re.I)
 from .schemas import CoreCheck, CoreResult, Market, Relation, VerifiedRuleDiff
 
 CORE_DIR = ROOT / "arbcheck-project"
@@ -85,7 +90,10 @@ class ArbcheckAdapter:
     name = "arbcheck"
 
     def __init__(self, demo: bool = True, kalshi_member: bool = False, log_path: Path | None = None,
-                 live_limit: int = 200):
+                 live_limit: int = 200, universe: list | None = None, now: datetime | None = None):
+        """universe: core Markets to use instead of the invented demo set (test data converted from files);
+        now: the clock for that data (its snapshot time)."""
+        self._fixed_now = now
         ac = _import_core()
         from arbcheck import demo_data, fees, guard, models, pipeline, relations, venues
         self.ac, self.models, self.fees, self.guard_mod = ac, models, fees, guard
@@ -99,8 +107,12 @@ class ArbcheckAdapter:
         self.max_events, self.max_per_event = 200, 40
         self.last_notes: list[str] = []
         self.progress = lambda text: None   # the pipeline sets this to report listing progress
+        self._sports: dict[str, dict] = {}       # "venue:id" -> kickoff, game id, league, market type
+        self.live_games: dict[str, dict] = {}    # game id -> live state from Polymarket's own event data
+        self.sports_leagues = [s for s in os.getenv("FRAME_SPORTS_LEAGUES", "premier-league").split(",") if s.strip()]
+        self.sports_days = int(os.getenv("FRAME_SPORTS_DAYS", "3"))
         if demo:
-            universe = demo_data.demo_markets()
+            universe = universe if universe is not None else demo_data.demo_markets()
             self.registry = venues.Registry([demo_data.DemoVenue(n, universe) for n in ("Polymarket", "Kalshi", "Manifold")])
             self._universe = universe
         else:
@@ -111,6 +123,8 @@ class ArbcheckAdapter:
 
     # -- time ----------------------------------------------------------------------
     def now(self) -> datetime:
+        if self._fixed_now is not None:
+            return self._fixed_now
         return self.demo_data.DEMO_NOW if self.demo else datetime.now(timezone.utc)
 
     # -- arbcheck Market <-> frame Market --------------------------------------------
@@ -123,13 +137,40 @@ class ArbcheckAdapter:
         self._core[self._key(cm.venue, cm.id)] = cm
         tags = tags if tags is not None else self._tags.get(self._key(cm.venue, cm.id), [])
         self._tags[self._key(cm.venue, cm.id)] = tags
+        close = cm.end
+        sp = self._sports.get(self._key(cm.venue, cm.id), {})
+        if sp.get("start_time_utc"):
+            # Polymarket sets a game's endDate to KICKOFF, but games keep trading in play and resolve after the
+            # final whistle. For the frame's rules and watch list the game is open until kickoff + 2 h 15 min.
+            from .sports import GAME_LENGTH, _dt
+            k = _dt(sp["start_time_utc"])
+            if k and k + GAME_LENGTH > close:
+                close = k + GAME_LENGTH
         return Market(
             venue=cm.venue.lower() if cm.venue.lower() in ("polymarket", "kalshi", "manifold") else "manual",
             id=cm.id, event_id=cm.group or None, title=cm.question, rules_text=cm.rules,
-            close_time_utc=cm.end.isoformat(), category=canonical(tags), tags=list(tags),
+            close_time_utc=close.isoformat(), category=canonical(tags), tags=list(tags),
             yes_bid=cm.yes.best_bid, yes_ask=cm.yes.best_ask, no_bid=cm.no.best_bid, no_ask=cm.no.best_ask,
-            url=cm.url or None,
+            url=cm.url or None, prob=cm.prob, **self._sports.get(self._key(cm.venue, cm.id), {}),
         )
+
+    def _note_sports(self, ev: dict) -> None:
+        """Remember kickoff / game id / league / market type for a Polymarket game event, and its live state
+        (Polymarket's own `live`, `score`, `period`, `elapsed` fields): the primary live-sports source."""
+        start = ev.get("startTime")
+        if not (start or ev.get("gameId")):
+            return
+        tags = [t.get("slug") for t in (ev.get("tags") or []) if isinstance(t, dict)]
+        league = next((t for t in ("premier-league", "champions-league", "la-liga", "bundesliga", "serie-a", "nba",
+                                   "nfl", "mlb", "nhl") if t in tags), ev.get("seriesSlug"))
+        for raw in ev.get("markets") or []:
+            self._sports[self._key("Polymarket", str(raw.get("id", raw.get("slug", ""))))] = {
+                "start_time_utc": start, "game_id": str(ev.get("gameId") or "") or None, "league": league,
+                "sport_type": raw.get("sportsMarketType")}
+        self.live_games[str(ev.get("gameId") or ev.get("slug"))] = {
+            "title": (ev.get("title") or "").split(" - ")[0], "start": start, "league": league,
+            "live": ev.get("live"), "ended": ev.get("ended"), "score": ev.get("score"), "period": ev.get("period"),
+            "elapsed": ev.get("elapsed"), "source": "Polymarket"}
 
     def cheap_link(self, a: Market, b: Market) -> bool:
         """The core's deterministic check (nested deadlines, thresholds, same question). No LLM.
@@ -198,6 +239,28 @@ class ArbcheckAdapter:
         case = self.pipeline.evaluate_case([cm], rel, g, self.now(), log=log, role="related", note="single market")
         return self._from_case(case)
 
+    def screen_pair(self, a: Market, b: Market, budget: float = 300.0, why: str | None = None) -> CoreResult:
+        """A SCREEN, not a verdict: price a code-derived logical pair with the core, no LLM.
+        why=None: a date/threshold ladder; the core's own deterministic extractor supplies the relation.
+        why=text: a link derived by code from the venue's game data (exact score => result): A implies B.
+        The pipeline sends only pairs whose screen shows a gap on to Gemini and a human."""
+        ca, cb = self._to_core(a), self._to_core(b)
+        if why:
+            rel, legs = self.relations.structural_relation("a_implies_b", why, "metadata", 0.9, "frame:sports"), [ca, cb]
+        else:
+            x, y = (ca, cb) if ca.end <= cb.end else (cb, ca)
+            rel, legs = self.relations.HeuristicExtractor().extract(x, y), [x, y]
+        g = self.guard_mod.Guard(self.guard_mod.Limits(max_notional=budget, max_total_notional=max(budget, 1000.0)))
+        case = self.pipeline.evaluate_case(legs, rel, g, self.now(), log=None, role="related", note="screen")
+        res = self._from_case(case)
+        # Guard against a false arbitrage found in the core's extractor (docs/CORE_REQUESTS.md #6): on
+        # downward thresholds ("hit (LOW) $70", "below", "dip to") it orders the implication like an upward one,
+        # so "LOW $80 implies LOW $70" (backwards) priced as 80¢ of "profit" in 1,636 recorded moments.
+        # Until the core handles direction, such ladders are blocked, never escalated.
+        if not why and rel.kind in ("a_implies_b", "b_implies_a") and any(_DOWNWARD.search(m.question) for m in legs):
+            res = tighten(res, "blocked", "threshold_direction_unverified")
+        return res
+
     def _to_core(self, m: Market):
         """The core Market for a frame leg: the registered one, else built from a manual entry."""
         cm = self._core.get(self._key(m.venue, m.id))
@@ -227,12 +290,15 @@ class ArbcheckAdapter:
         """Open markets with their venue categories. Live data goes only through arbcheck's
         ReadOnlyClient (allowlisted GETs, rate-spaced, cached) and arbcheck's own parsers."""
         wanted = {v.lower() for v in venues}
-        if self.demo:  # test-only invented universe: one shared category so the type rule passes
-            return [self.to_frame(m, ["other"]) for m in self._universe if m.venue.lower() in wanted]
+        if self.demo:  # invented test universe ("other") or converted test data (its own category)
+            return [self.to_frame(m, [m.meta.get("category") or "other"]) for m in self._universe
+                    if m.venue.lower() in wanted]
         self.last_notes = []
         out: list[Market] = []
         if "polymarket" in wanted:
             out += self._polymarket_events()
+            seen = {m.id for m in out if m.venue == "polymarket"}
+            out += [m for m in self._sports_events() if m.id not in seen]
         if "kalshi" in wanted:
             if self.kalshi_member:
                 out += self._kalshi_events()
@@ -258,12 +324,47 @@ class ArbcheckAdapter:
             if not isinstance(events, list) or not events:
                 break
             for ev in events:
-                tags = [t.get("slug") or t.get("label") for t in (ev.get("tags") or []) if isinstance(t, dict)]
-                self._event_tags[ev.get("slug", "")] = tags
-                for cm in polymarket.stubs_from_event(ev)[: self.max_per_event]:
-                    out.append(self.to_frame(cm, tags))
+                out += self._from_event(ev)
             offset += len(events)
             self.progress(f"Polymarket: {offset} of {self.max_events} events read, {len(out):,} markets so far…")
+        return out
+
+    def _from_event(self, ev: dict) -> list[Market]:
+        from arbcheck import polymarket
+        tags = [t.get("slug") or t.get("label") for t in (ev.get("tags") or []) if isinstance(t, dict)]
+        self._event_tags[ev.get("slug", "")] = tags
+        self._note_sports(ev)
+        return [self.to_frame(cm, tags) for cm in polymarket.stubs_from_event(ev)[: self.max_per_event]]
+
+    def _sports_events(self) -> list[Market]:
+        """Upcoming and live games of the chosen leagues (default the Premier League), kicking off within
+        FRAME_SPORTS_DAYS. Pulled separately because single games rarely make the top events by 24h volume,
+        and games resolve within hours: the shortest lock-up there is."""
+        from arbcheck import polymarket
+        now = datetime.now(timezone.utc)
+        fmt = "%Y-%m-%dT%H:%M:%SZ"
+        out: list[Market] = []
+        for league in self.sports_leagues:
+            offset, page = 0, 10
+            while offset < 200:
+                try:
+                    events = self.client.get(f"{polymarket.GAMMA}/events", {
+                        "closed": "false", "active": "true", "tag_slug": league.strip(), "limit": page, "offset": offset,
+                        # games: Polymarket sets endDate to kickoff, so this also keeps games that started <3 h ago
+                        "end_date_min": (now - timedelta(hours=3)).strftime(fmt),
+                        "end_date_max": (now + timedelta(days=self.sports_days)).strftime(fmt)})
+                except Exception as e:
+                    if "too large" in str(e) and page > 1:
+                        page //= 2
+                        continue
+                    self.last_notes.append(f"Sports ({league}): {e}")
+                    break
+                if not isinstance(events, list) or not events:
+                    break
+                for ev in events:
+                    out += self._from_event(ev)
+                offset += len(events)
+                self.progress(f"Sports ({league}): {offset} events read, {len(out):,} markets so far…")
         return out
 
     def _kalshi_events(self) -> list[Market]:
