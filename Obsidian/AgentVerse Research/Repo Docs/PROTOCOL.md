@@ -1,9 +1,9 @@
 ---
 tags: [agentverse, repo-doc]
 source: docs/PROTOCOL.md
-synced: 2026-11-08 12:55
+synced: 2026-11-08 13:20
 ---
-> Copy of `docs/PROTOCOL.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 12:55. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
+> Copy of `docs/PROTOCOL.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 13:20. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
 
 # Evaluation protocol (pre-register BEFORE opening the sealed set)
 

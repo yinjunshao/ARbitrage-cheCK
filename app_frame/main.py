@@ -20,6 +20,8 @@ from frame import arbtypes, priority, sports  # noqa: E402
 from frame.pipeline import Pipeline, build  # noqa: E402
 from frame.schemas import Market  # noqa: E402
 
+from app_frame import board_page, style  # noqa: E402
+
 RELATIONS = ["same_event", "a_implies_b", "b_implies_a", "mutually_exclusive", "exhaustive_set"]
 USER = "analyst"
 P: Pipeline | None = None
@@ -34,20 +36,17 @@ def cents(x: float) -> str:
     return f"{x * 100:.1f}¢"
 
 
-def banner():
-    ui.query("body").style("background:#f8fafc;color:#0f172a")
-    with ui.header().classes("items-center bg-slate-800"):
-        ui.label("False-Arb Checker").classes("text-lg font-bold")
-        for path, name in (("/", "Check"), ("/candidates", "Candidates"), ("/suggestions", "Suggestions"), ("/log", "Log")):
-            ui.link(name, path).classes("text-white ml-4")
-    with ui.row().classes("w-full bg-amber-200 text-black p-2 gap-4"):
+def banner(active: str = ""):
+    style.header(active)
+    with ui.row().classes("w-full gap-4 px-4 py-1 items-center fa-strip").style(
+            "background:var(--care-bg);color:var(--care);border-bottom:1px solid var(--line)"):
         ui.label("PAPER ONLY. No orders are placed.").classes("font-bold")
         if P.adapter.name == "fake":
-            ui.label("FAKE CORE: placeholder numbers.").classes("text-red-700 font-bold")
-        if getattr(P.adapter, "demo", False):
-            ui.label("TEST MARKETS: invented.").classes("text-red-700 font-bold")
+            ui.label("FAKE CORE: placeholder numbers.").classes("font-bold")
+        if getattr(P.adapter, "demo", False) and MODE != "testdata":
+            ui.label("TEST MARKETS: invented.").classes("font-bold")
         if MODE == "testdata":
-            ui.label("TEST DATA from data/testdata/normalized (downloaded files, not live)").classes("text-red-700 font-bold")
+            ui.label("TEST DATA from data/testdata/normalized (downloaded files, not live)").classes("font-bold")
         ui.label(f"{'TEST' if MODE == 'testdata' else 'LIVE'} data · Polymarket on · Kalshi {'ON' if P.cfg.kalshi_member else 'off (set FRAME_KALSHI_MEMBER=1 in .env)'} · "
                  f"LLM {P.cfg.judge_model} · core {P.adapter.name}")
 
@@ -157,7 +156,7 @@ def scan_choices():
 
 @ui.page("/")
 def check_page():
-    banner()
+    banner("/")
     with ui.column().classes("p-4 w-full max-w-5xl"):
         ui.label("Proactive scan of live markets").classes("text-xl")
         ui.label(f"Pulls the top {getattr(P.adapter, 'max_events', '?')} open events by 24h volume, applies the "
@@ -332,7 +331,7 @@ def type_chip(t: str):
 
 @ui.page("/candidates")
 def candidates_page():
-    banner()
+    banner("/candidates")
     f = {"type": "all", "cat": "all", "conf": "any", "how": "any", "sort": "Smart (recommended)",
          "fsort": "Smart (recommended)", "sport": "all"}
     with ui.column().classes("p-4 w-full"):
@@ -703,7 +702,7 @@ def finding_page(fid: str):
 
 @ui.page("/suggestions")
 def suggestions_page():
-    banner()
+    banner("/suggestions")
     with ui.column().classes("p-4 w-full"):
         ok, bad = P.suggestions.log.verify()
         counts = P.suggestions.counts()
@@ -729,7 +728,7 @@ def suggestions_page():
 
 @ui.page("/log")
 def log_page():
-    banner()
+    banner("/log")
     with ui.column().classes("p-4 w-full"):
         ok, bad = P.audit.verify()
         ui.label("Hash chain verified ✓" if ok else f"Hash chain BROKEN at record {bad}").classes(
@@ -739,6 +738,40 @@ def log_page():
                  "summary": str(r["payload"])[:160]} for r in recs]
         ui.table(columns=[{"name": k, "label": k, "field": k} for k in ("seq", "kind", "hash", "summary")],
                  rows=rows).classes("w-full")
+
+
+async def run_scan_global():
+    """The scan with the ticked sources / kinds / sports (the Check page's checkboxes), for the board's button."""
+    global SCANNING
+    from nicegui import run
+    if SCANNING:
+        ui.notify("A scan is already running.", type="warning")
+        return None
+    if not PREFS.get("venues") or not PREFS.get("categories"):
+        ui.notify("Tick at least one source and one kind of market on the Scan & check page.", type="warning")
+        return None
+    SCANNING = True
+    try:
+        s = await run.io_bound(P.scan, sorted(PREFS["venues"]), sorted(PREFS["categories"]), sorted(PREFS["leagues"]))
+    except Exception as e:
+        ui.notify(f"Scan failed: {type(e).__name__}: {e}", type="negative", multi_line=True)
+        return None
+    finally:
+        SCANNING = False
+    for n in s.notes[:4]:
+        ui.notify(n, type="info", multi_line=True)
+    return s
+
+
+async def send_to_checker(row):
+    """A screened pair (matched by code) -> Gemini compares the rules -> you confirm on Opportunities."""
+    from nicegui import run
+    a, b = row.pair
+    async with busy("Asking Gemini to compare the rules of this pair"):
+        await run.io_bound(P.check_pair, a, b)
+    ui.notify("Ready for your review on Opportunities.", type="positive")
+    ui.navigate.to("/candidates")
+
 
 
 async def _background_watch():
@@ -781,6 +814,8 @@ def main():
     else:
         P = build(cfg=cfg)  # live venues + live Gemini
     _init_prefs(P.cfg)
+    style.install()
+    board_page.register(lambda: P, run_scan_global, busy, send_to_checker)
     app.on_startup(_background_watch)
     ui.run(title="False-Arb Checker", port=args.port, host="127.0.0.1", reload=False, show=False, dark=False)
 

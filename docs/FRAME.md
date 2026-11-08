@@ -74,6 +74,34 @@ The Check page has three rows of checkboxes; `.env` sets the defaults, which the
 - **Kinds of market** (`FRAME_CATEGORIES`, default `all`): crypto, economics, politics, sports, science and tech, climate and weather, culture, health, other.
 - **Sports** (`FRAME_SPORTS_LEAGUES`, default `premier-league`): Premier League, Champions League, La Liga, Bundesliga, Serie A, NBA, NFL, MLB, NHL, UFC, tennis, F1, cricket. Games of ticked sports are pulled separately. A sports market whose league can't be told (e.g. Kalshi's) is kept.
 
+## The arbitrage board and calculator (`/board`; design in `docs/DESIGN.md`)
+
+Our own take on a cross-venue arbitrage board. Nothing on it comes from another scanner: every row is our scan, priced by our core.
+
+**Three kinds of row, never mixed up** (`frame/board.py`):
+- **Verified:** a pair a human confirmed after Gemini compared the rules, priced by the core on live books.
+- **Screen:** a pair matched by code (the same match on two venues, ladders, exact score ⇒ result) and priced on live books, but its rules have not been compared. Its badge says "screen only", and *Send to checker* runs Gemini and asks you to confirm.
+- **Structure:** a venue-declared outcome set, or Yes + No of one market. There is nothing to confirm.
+
+**Each card shows the four stages** (price-only, at best asks, after fees and depth, after rule risk), the verified return, profit on capital, annualised return and days to resolution. A claim from another scanner, if present, is drawn outlined and hatched, never merged with ours.
+
+**Filters:** kind, show (gaps only, survives costs only, everything), type, sport, venue, minimum verified return, minimum profit and search. **Sorts:** best first (a score with its reasons on hover), verified return, profit, annualised, liquidity, soonest, newest.
+
+**Calculator** (`frame/calc.py`, dialog on every card or standalone). Inspired by prediction.com's published method:
+- cost = sum of leg prices;
+- net profit = $1 − cost − entry fees;
+- ROI = profit ÷ cost;
+- per-venue fee formulas with rounding (Kalshi, Polymarket, Polymarket US, Novig, Opinion, Predict.fun, ProphetX; PredictIt's 10% exit fee), applied to the **whole order**, since fees are not linear in size.
+
+What the calculator adds, because a headline ROI hides these:
+- **Capital to contracts:** it solves for how many pairs your capital buys, fees included.
+- **Break-even and slippage:** the highest total price that still pays, and how many cents each leg can slip.
+- **Time:** simple and compounded annual return.
+- **Settlement risk:** a haircut you set for the chance that venues settle differently.
+- **Size curve:** with the core's real order-book levels, how profit falls as you take more of the book.
+
+It also shows the core's own live-book result beside its own numbers, so a flat-price estimate can't be mistaken for what the book allows.
+
 ## Novig (`frame/novig.py`)
 
 Novig is a US sports exchange. The checker uses only its **public, unauthenticated** endpoints (`api.novig.com/v3/public/…`: events, markets, order books), with the same client rules as the core: GET only, allowlisted, rate-spaced, cached. It never uses the signed trading API.

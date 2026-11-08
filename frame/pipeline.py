@@ -63,6 +63,7 @@ class Case:
     error: str | None = None
     history: list[str] = field(default_factory=list)
     external: dict | None = None        # another scanner's claim about this pair (e.g. prediction.com's ROI)
+    priced_at: float = 0.0              # when the core last priced it (epoch seconds)
 
     @property
     def id(self) -> str:
@@ -93,6 +94,7 @@ class Finding:
     category: str = "other"
     title: str = ""
     scan: str = ""
+    at: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -106,6 +108,7 @@ class Screen:
     how: str
     why: str = ""
     scan: str = ""
+    at: float = field(default_factory=time.time)   # when it was last priced
 
 
 @dataclass
@@ -243,6 +246,10 @@ class Pipeline:
                 pid = pair_id(a, b)
                 if pid not in self.cases and pid not in self.watch.items and self._rule(a, b, nested=True).ok:
                     links.append((a, b, 1.0, "game_link", pair_id(a, b), why))
+            # The same match on two venues: screened every scan (cheap) so the board always has fresh prices for it.
+            for a, b, why in sports.cross_venue_games(markets):
+                if self._rule(a, b).ok:
+                    links.append((a, b, 1.0, "cross_game", pair_id(a, b), why))
             escalated = self._screen_many(ladders + links, s)
         s.candidates = len(allowed) + len(escalated)
         # LLM budget, shared out evenly across categories so one busy category (crypto has the most markets)
@@ -274,21 +281,24 @@ class Pipeline:
         def urgency(t):
             a, b = t[0], t[1]
             live = sports.in_play(a) or sports.in_play(b)
-            return (not live, min(a.close_time_utc or "9", b.close_time_utc or "9"))
+            # cross-venue game pairs first (the board's main content), then games in play, then the soonest to close
+            return (t[3] != "cross_game", not live, min(a.close_time_utc or "9", b.close_time_utc or "9"))
         out = []
         for a, b, sim, how, pid, why in sorted(items, key=urgency)[: self.cfg.max_screens_per_scan]:
             try:
-                core = self.adapter.screen_pair(a, b, why=why)
+                core = self.adapter.screen_pair(a, b, why=why, kind="equivalent" if how == "cross_game" else None)
             except Exception as e:
                 s.notes.append(f"screen {a.id}/{b.id}: {type(e).__name__}: {e}")
                 continue
             s.screened += 1
             self.screens[pid] = Screen(pid, a, b, core, how, why or "", s.scan)
             self.suggestions.priced(pid, [a, b], core, event="screened")
-            self._watch(pid, "game_link" if why else "ladder", arbtypes.LOGICAL,
+            self._watch(pid, "cross_game" if how == "cross_game" else ("game_link" if why else "ladder"),
+                        arbtypes.CROSS_PLATFORM if how == "cross_game" else arbtypes.LOGICAL,
                         why or f"{a.title[:60]} / {b.title[:60]}", [a, b], core, why or "")
-            if core.verdict in ("worth_a_look", "look_closely") or (core.naive_edge > 0 and core.verdict != "blocked"):
-                s.escalated += 1
+            if how != "cross_game" and (core.verdict in ("worth_a_look", "look_closely")
+                                        or (core.naive_edge > 0 and core.verdict != "blocked")):
+                s.escalated += 1                    # cross-venue game pairs already go to Gemini as cross_venue candidates
                 out.append((a, b, max(sim, 0.99), how, pid))
         return out
 
@@ -319,8 +329,9 @@ class Pipeline:
                     core = self.adapter.price_set(legs, budget)
                 elif it.kind == "single":
                     core = self.adapter.price_single(legs[0], budget)
-                elif it.kind in ("ladder", "game_link"):
-                    core = self.adapter.screen_pair(legs[0], legs[1], budget, why=it.why or None)
+                elif it.kind in ("ladder", "game_link", "cross_game"):
+                    core = self.adapter.screen_pair(legs[0], legs[1], budget, why=it.why or None,
+                                                    kind="equivalent" if it.kind == "cross_game" else None)
                 elif it.kind == "confirmed":
                     rel = next((r for r in self.confirmed_relations() if r.pair_id == it.key), None)
                     if rel is None:
@@ -342,9 +353,9 @@ class Pipeline:
                 self.alerts.insert(0, (time.time(), it, core))
                 del self.alerts[50:]
             if it.key in self.findings:
-                self.findings[it.key].core = core
+                self.findings[it.key].core, self.findings[it.key].at = core, time.time()
             if it.key in self.screens:
-                self.screens[it.key].core = core
+                self.screens[it.key].core, self.screens[it.key].at = core, time.time()
             out.append((it, core, ""))
         self.watch.save()
         if due:
@@ -530,7 +541,7 @@ class Pipeline:
         # Rule differences may only make a trade less likely (the core already blocks on high flags).
         if case.rules and case.rules.diff.overall == "incompatible":
             core = tighten(core, "blocked", "frame_rules_incompatible")
-        case.core = core
+        case.core, case.priced_at = core, time.time()
         kalshi = any(l.venue == "kalshi" for l in case.relation.legs)
         self.audit.append("core_call", {"case": case_id, "budget": budget, "adapter": self.adapter.name,
                                         "verdict": core.verdict, "core_version": core.core_version,

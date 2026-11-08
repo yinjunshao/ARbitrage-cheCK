@@ -244,13 +244,23 @@ class ArbcheckAdapter:
         case = self.pipeline.evaluate_case([cm], rel, g, self.now(), log=log, role="related", note="single market")
         return self._from_case(case)
 
-    def screen_pair(self, a: Market, b: Market, budget: float = 300.0, why: str | None = None) -> CoreResult:
+    def screen_pair(self, a: Market, b: Market, budget: float = 300.0, why: str | None = None,
+                    kind: str | None = None) -> CoreResult:
         """A SCREEN, not a verdict: price a code-derived logical pair with the core, no LLM.
         why=None: a date/threshold ladder; the core's own deterministic extractor supplies the relation.
         why=text: a link derived by code from the venue's game data (exact score => result): A implies B.
         The pipeline sends only pairs whose screen shows a gap on to Gemini and a human."""
         ca, cb = self._to_core(a), self._to_core(b)
-        if why:
+        if why and kind == "equivalent":
+            # The same event on two venues, matched by code (team names + kickoff). Rule texts are NOT compared here,
+            # so the relation carries the core's own cross-venue flags and says so: a screen, not a verdict.
+            R = self.relations
+            sa, sb = R._first_sentence(ca.rules) or ca.question, R._first_sentence(cb.rules) or cb.question
+            flags = [f for f in R.HeuristicExtractor()._flags(ca, cb, "equivalent", sa, sb) if f.kind == "venue_oracle"]
+            rel = R.Relation("equivalent", 0.9, flags, why, "frame:cross-game", evidence_a="", evidence_b="",
+                             verified=False, problems=["rule texts not compared yet (screen only)"], basis="metadata")
+            legs = [ca, cb]
+        elif why:
             rel, legs = self.relations.structural_relation("a_implies_b", why, "metadata", 0.9, "frame:sports"), [ca, cb]
         else:
             x, y = (ca, cb) if ca.end <= cb.end else (cb, ca)
@@ -520,8 +530,28 @@ class ArbcheckAdapter:
                                            note=f"frame pair {relation.pair_id}")
         return self._from_case(case)
 
+    def _quotes(self, case) -> tuple[list[dict], list[list[list[float]]]]:
+        """Per-leg quotes from the markets the core priced: best ask, average price over its fills, fee model, depth."""
+        arb, ms = case.arb, case.markets
+        quotes, levels = [], []
+        for k, (lab, side) in enumerate(arb.legs or ()):
+            m = ms[ord(lab) - ord("A")] if len(lab) == 1 and 0 <= ord(lab) - ord("A") < len(ms) else None
+            if m is None:
+                continue
+            book = m.yes if side == "YES" else m.no
+            asks = [[l.price, l.size] for l in book.asks[:20]]
+            fills = arb.fills or []
+            tot = sum(f.shares for f in fills)
+            avg = sum(f.prices[k] * f.shares for f in fills) / tot if tot else None
+            quotes.append({"venue": m.venue.lower(), "side": side, "title": m.question, "url": m.url or "",
+                           "price": book.best_ask, "avg": avg, "fee": arb.fees[k].name if k < len(arb.fees) else "",
+                           "depth": sum(p * s for p, s in asks)})
+            levels.append(asks)
+        return quotes, levels
+
     def _from_case(self, case) -> CoreResult:
         arb, d = case.arb, case.decision
+        quotes, levels = self._quotes(case)
         legs = [f"{lab} {side}" for lab, side in (arb.legs or ())]
         return CoreResult(
             verdict=VERDICT[d.status], family=case.family, status=d.status, headline=d.headline, kind=arb.kind, legs=legs,
@@ -535,7 +565,7 @@ class ArbcheckAdapter:
             flags=[f"{f.kind}:{f.severity}" for f in case.relation.flags],
             fees={leg: f.name for leg, f in zip(legs, arb.fees)},
             scenarios=[{"world": list(s["world"]), "payout": s["payout"], "profit": s["profit"]} for s in arb.scenarios],
-            core_version=self.version,
+            core_version=self.version, quotes=quotes, levels=levels,
         )
 
 

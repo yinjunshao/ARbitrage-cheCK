@@ -125,6 +125,10 @@ class CoreResult(BaseModel):
     """
     verdict: CoreVerdict
     family: str = ""            # the core's own label: same-market | multi-outcome | cross-platform | logical
+    # What each leg would cost: [{venue, side, title, url, price (best ask), avg (over the fills), fee, depth ($)}].
+    # `levels` = the ask levels the core walked, per leg, for the calculator's size curve.
+    quotes: list[dict] = []
+    levels: list[list[list[float]]] = []
     status: str                 # raw guard status: OK | WARN | BLOCKED | NO_ARB
     headline: str               # the guard's own sentence
     kind: str                   # core relation kind
