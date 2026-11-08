@@ -72,6 +72,8 @@ class Market:
     fee_rate: float | None = None  # taker feeRate from Gamma's feeSchedule; None = unknown
     fee_exponent: float = 1.0
     fee_taker_only: bool = True  # makers pay nothing
+    event_slug: str = ""  # the Gamma event this market belongs to (e.g. a ladder)
+    group_title: str = ""  # its rung in that event, e.g. "December 31" or "↑ 100,000"
 
     def token(self, outcome: str) -> Token:
         for t in self.tokens:
