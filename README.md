@@ -4,6 +4,18 @@ polysim takes a trade idea and plays it out **on paper** against real Polymarket
 
 > **Paper trading only.** polysim has no code that places, signs or cancels a real order, and it holds no keys, wallets or logins. It only sends read-only GET requests to Polymarket's public endpoints. Every number it prints is a simulated result, not real-world performance.
 
+## Results at a glance (paper results on real, forward-recorded data)
+
+| Question | Result | Uncertainty / limits |
+|---|---|---|
+| How often does a price-only checker (the benchmark) cry "arbitrage"? | **~7,200 alarms** in our 7–8 Nov recording (ladders 3,117, Yes+No 4,101) | 11 events, ~3–4 h of clean one-minute snapshots |
+| How many were tradeable after real asks, taker fees, depth and timing? | **0** (arbcheck core, normal limits). By the rule of three, fewer than ~1.7% of the 178 recorded rounds had one (95%), for these events and this period | Rounds are not independent, so the true interval is wider |
+| Is there any strict, riskless arbitrage at all? | Yes, in the corners: e.g. 99.4¢ + 0.5¢ for a $1 floor. With every threshold at zero the core approved 192; the paper desk filled them for **$8.27 locked in on $20,500 tied up ~53 days (~0.16% a year)**. The 20 that resolved all paid their floor | Recorded books are a minute apart, so replays can't show the book moving during the 2 s latency |
+| Did the checker catch a false arbitrage? | Yes, in our own engine: "dip to X" ladders ordered backwards produced **1,636 fake "locked-in profits"**, now blocked | Fix requested in the core (CORE_REQUESTS #6) |
+| Can the LLM catch rule differences a price check can't see? | On 5 labelled real cross-venue pairs: **Gemini caught 3/3** material differences for the right reason; the title-only baseline and the keyword reader caught **0/3** | n = 5. 95% interval for 3/3 is 29–100%. Gemini also flagged **2/2** edge pairs (interval 16–100%), so it does not yet tell rare from material. Rules were summaries; one labeller |
+
+Every number here is a simulated (paper) result, not real-world performance. Details: [Paper desk](#paper-desk-polysim-paper), [Rule check](#rule-check-on-real-cross-venue-pairs-frame--gemini).
+
 ## Who it is for and where it fits
 
 The project's user is a Polymarket trader (in a country where Polymarket is available) who sees a "risk-free" arbitrage posted online and has to decide whether to take it.
@@ -36,6 +48,13 @@ polysim audit-verify audit.jsonl
 polysim backtest --strategy buy_and_hold --approve cli --approver-name "Your Name"
 
 # Real data (needs access to gamma-api.polymarket.com / clob.polymarket.com)
+# Record whole ladders (every open market of each event) until stopped; see "Recording" below
+caffeinate -i polysim record-events anthropic-ipo-by what-price-will-bitcoin-hit-in-november-2026
+polysim resolutions                       # later: add results for markets that have resolved
+polysim paper --tickets tickets.jsonl --events recordings --markets recordings/markets.json  # see "Paper desk"
+polysim paper --tickets tickets.jsonl --live --approve cli --approver-name "Your Name"
+polysim evaluate --candidates candidates.jsonl --events recordings --markets recordings/markets.json \
+    --split-ts 2026-11-12
 polysim markets --limit 20
 polysim record <market-slug> --interval 5 --duration 3600 --out books.jsonl
 polysim fetch <market-slug> --fidelity 60 --out events.jsonl --markets-out markets.json
@@ -94,6 +113,73 @@ polysim evaluate --candidates candidates.jsonl --events books.jsonl --markets ma
 ```
 
 **About `--demo`.** It runs on an invented dataset of 60 ladder pairs: real gaps, gaps eaten by fees, thin books, rule mismatches, rules that couldn't be confirmed, and sellers who vanish during the delay, plus 6 deliberately bad inputs. It shows how the evaluation behaves. **It is not evidence that the checker works**; the result is built into the data. Only results on recorded data count.
+
+## Recording real data: `polysim record-events`
+
+Polymarket keeps fine-grained history for only about a week, and it never keeps full order books, so we record forward ourselves. The later part of a recording is data the checker has never seen.
+
+`polysim record-events <event-slug> ...` records **every open market of each event**, which is what a ladder is: one event with a market per date or price level. Once a minute, for each token, it saves the top 20 levels of the book. Files go to `recordings/`:
+
+- `books-YYYYMMDD.jsonl.gz`: one gzip file per UTC day, written once per round, so a crash loses at most one minute.
+- `markets.json`: every market seen, with its fee schedule and its rung in the ladder (e.g. "December 31", "↑ 100,000").
+- `events/<slug>.json`: the raw event, including each market's rules text.
+- `resolutions.jsonl`: each market's result as soon as it resolves. The recorder refreshes events every 30 minutes, adds new markets and stops recording closed ones. `polysim resolutions` fills in any results after recording stops.
+- `recorder.log`: progress and errors. A failed request is logged and skipped, never fatal.
+
+It sends at most 5 requests a second, far below Polymarket's documented limits, and backs off on HTTP 429. It reads only public GET endpoints and identifies itself as a read-only research tool. `recordings/` is in `.gitignore`, because Polymarket's terms bar redistributing their data. On a Mac, `caffeinate -i` stops idle sleep while it runs, but **not** sleep from closing the lid: keep the lid open and the charger in, or the recording has a gap (the recorder carries on by itself when the Mac wakes). Restarting it with the same folder carries on where it left off.
+
+`--events` in `evaluate`, `backtest` and `paper` accepts recorder folders as well as files.
+
+## Paper desk: `polysim paper`
+
+This is where the checker's decision meets execution. arbcheck decides whether a basket is worth buying and at what prices; the paper desk shows what would have happened if we had tried.
+
+**Input: tickets.** One JSON object per approved opportunity (`polysim/tickets.py`):
+
+```json
+{"ticket_id": "case-7", "ts": 1794080000, "kind": "a_implies_b", "floor": 1.0, "shares": 120,
+ "expected_cost": 118.4, "expected_profit": 1.6,
+ "legs": [{"token_id": "...", "outcome": "NO",  "max_price": 0.42, "market_id": "0x...", "label": "A NO"},
+          {"token_id": "...", "outcome": "YES", "max_price": 0.57, "market_id": "0x...", "label": "B YES"}]}
+```
+
+`ticket_from_core(case.markets, case.arb, case.decision, ts=..., decision_id=...)` builds one straight from arbcheck's objects. It refuses anything the guard did not approve (`OK` or `WARN`), and sets each leg's `max_price` to the worst price the core priced. polysim does not import arbcheck, and arbcheck does not import polysim; the ticket is the whole interface.
+
+**What happens to each ticket, step by step.**
+
+1. Wait until the data reaches the ticket's time and every leg has a book less than `--max-book-age` seconds old. Give up after `--max-delay` seconds (`expired`).
+2. Risk limits check the whole basket (`rejected` if any leg breaks a limit, or the kill switch is on).
+3. One approval for the whole plan, including the unwind: automatic in replays, or a named person with `--approve cli`.
+4. The legs go out one by one as fill-or-kill buys, with `--latency` seconds of delay each, never above `max_price`. If a leg fails, the legs already bought are sold back (`unwound`), and the loss is the **leg-risk cost**.
+5. If every leg resolves within the data, the desk checks the payout against the promised floor and reports a broken relation as `FLOOR BROKEN`.
+
+Every order carries the ticket id as its `decision_id`, so the hash-chained audit log (`--audit`) links each fill to the checker's reasoning.
+
+**The report**, per ticket: status, delay, the checker's expected cost against the paper cost (**slippage**), **locked profit** (floor × shares − paper cost: the part that does not depend on any outcome), leg-risk cost, and the realised result after resolution.
+
+```bash
+polysim paper --tickets tickets.jsonl --events recordings --markets recordings/markets.json --latency 2 \
+    --audit paper-audit.jsonl --json paper.json
+polysim paper --tickets tickets.jsonl --live --approve cli --approver-name "Your Name"   # current books, one snapshot
+```
+
+**On our 7–8 Nov recording**, arbcheck priced 255 moments where a ladder pair showed a gap at the best asks. With its normal limits it approved **none**. With every threshold set to zero, to exercise the hand-over, it approved 192, almost all one Bitcoin pair at 99.4¢ + 0.5¢. The desk filled all 192 at the core's prices: **$8.27 locked in, on $20,500 of capital tied up until the end of 2026**. The 20 that resolved during the recording all paid their floor. The recorder's books are a minute apart, so in a replay the book does not move during the 2-second latency; on live books it can.
+
+## Rule check on real cross-venue pairs (frame + Gemini)
+
+Prices are only half of "is this arbitrage real?". Two markets with the same title can settle on different rules, and then the "guaranteed" payout is not guaranteed. We ran the team's labelled set of **5 real Polymarket–Kalshi pairs** (`data/real_pairs.json`, `scripts/eval_real_pairs.py` on `frame/llm-layer`) on 8 Nov 2026. A person labelled each pair: `material` means a plausible outcome pays differently on the two venues; `edge` means they differ only in rare cases.
+
+| Checker | Material differences caught | Missed | False alarms on edge pairs |
+|---|---|---|---|
+| Title-only baseline | 0 / 3 | 3 | 0 / 2 |
+| arbcheck offline rule reader (keywords) | 0 / 3 | 3 | 0 / 2 |
+| **Gemini rule comparison** | **3 / 3** | **0** | **2 / 2** |
+
+- **Gemini found every real trap, for the right reason.** NYC temperature: `data_source: blocker` (LaGuardia vs Central Park). Bitcoin daily: `data_source: blocker` (a Binance 1-minute candle vs the CF Benchmarks index). TIME Person of the Year: `yes_definition: blocker` ("associated and pictured" vs "explicitly named"; in 2025 the same bet paid on one venue and lost on the other).
+- **It also flagged both edge pairs as serious**, so on this set it does not yet tell "rare" differences from material ones. A checker that always says "serious" would score the same on these 5. The value shown here is that it names the clause that differs, with quotes a person can check.
+- **This is the intended failure direction.** A false alarm costs a skipped trade; a miss costs money. The core only lets the LLM make a verdict more cautious, never less, and a person confirms before anything is priced.
+- **The keyword reader could not link 4 of the 5 titles**, so it never compared their rules. That is the gap the LLM layer fills.
+- **Limits, stated plainly:** n = 5; the rules are summaries, not the venues' verbatim text; one labeller. Next: 100–200 pairs, verbatim rules, two labellers with agreement reported, precision first.
 
 ## How it works, step by step
 
@@ -208,7 +294,7 @@ For an arbitrage, call `ctx.execute_basket([BasketLeg(token_a, 100, max_price=0.
 In priority order, matching the hackathon judging:
 
 1. **Record real books now** for ladder pairs, so there is a later period the checker has never seen.
-2. **Connect to arbcheck and frame**: export their candidates (with `floor`, `rule_check` and `decision_id`) as `polysim evaluate` input, use arbcheck's read-only client, and write paper fills into frame's audit log.
+2. **Connect frame to the paper desk**: when a person approves a case in the app, call `ticket_from_core` and send the ticket to `polysim paper --live`, then show the paper fill next to the core's numbers. The ticket format and a test against the real core (`tests/polysim/test_desk_arbcheck.py`) are in place.
 3. **Hand-label 100–200 market pairs** to measure the LLM's relation detection (precision first) alongside this evaluation.
 4. **Record trades as well as books**, then add a queue model for maker orders.
 5. **"What would change the verdict"**: report the price or depth at which a basket stops being worth it.

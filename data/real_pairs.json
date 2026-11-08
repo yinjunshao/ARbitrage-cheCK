@@ -1,0 +1,59 @@
+{
+  "about": "Real cross-venue pairs (Polymarket vs Kalshi) collected 7 Nov 2026. Each pair is one event both venues list under near-identical titles. rules_a / rules_b are SUMMARIES of each venue's published rules, taken from the linked pages; before a final run, paste each venue's full verbatim rules text into rules_a / rules_b and set rules_verbatim to true. Labels: material = a plausible real-world outcome makes the two contracts pay differently; edge = they differ only in rare cases (delays, cancellations, ties); match = no difference found. Labelled by one person; add a second labeller and report agreement before treating this as final.",
+  "labeller": "one person (team to add a second)",
+  "rules_verbatim": false,
+  "pairs": [
+    {
+      "id": "nyc-high-temp",
+      "event": "Highest temperature in NYC on a given day",
+      "a": {"venue": "polymarket", "title": "Highest temperature in NYC on August 6?", "url": "https://orrery.me/events/highest-temperature-in-nyc-on-august-6-2026",
+            "rules": "Resolves to the range containing the highest temperature recorded at LaGuardia Airport (KLGA) on the Weather Underground history page, Daily Observations table, in whole degrees Fahrenheit. Cannot resolve until the first data point for the following date is published; revisions after that are ignored."},
+      "b": {"venue": "kalshi", "title": "Highest temperature in NYC", "url": "https://kalshi-public-docs.s3.amazonaws.com/contract_terms/NHIGH.pdf",
+            "rules": "Source: National Weather Service Daily Climate Report for Central Park, New York, maximum temperature in degrees Fahrenheit. Revisions after expiration are not counted. Expiration is the first 7:00 or 8:00 AM ET after the data release, or one week after the date."},
+      "label": "material",
+      "note": "Different weather stations: LaGuardia Airport vs Central Park. The two readings can differ by several degrees, so one contract can pay while the other does not."
+    },
+    {
+      "id": "btc-daily",
+      "event": "Bitcoin price above a level on a given day",
+      "a": {"venue": "polymarket", "title": "Bitcoin above ___ on August 16?", "url": "https://www.ainvest.com/news/63-000-candle-decoding-bitcoin-august-16-polymarket-contract-2608/",
+            "rules": "Resolves on the Close price of the Binance BTC/USDT 1-minute candle at 12:00 ET on the date, not a daily close or an index price."},
+      "b": {"venue": "kalshi", "title": "Bitcoin price above/below", "url": "https://kalshi-public-docs.s3.amazonaws.com/contract_terms/BTC.pdf",
+            "rules": "Underlying: CF Bitcoin Real-Time Index (BRTI) from CF Benchmarks. Expiration value is the simple average of BRTI over the 60 seconds before the specified time. Revisions after expiration are not counted."},
+      "label": "material",
+      "note": "Different price source (one exchange's candle close vs a multi-exchange index average) and possibly a different time. Near the strike, one can resolve Yes and the other No."
+    },
+    {
+      "id": "time-poy-2026",
+      "event": "TIME Person of the Year 2026",
+      "a": {"venue": "polymarket", "title": "Will Donald Trump be TIME Person of the Year 2026?", "url": "https://orrery.me/markets/will-donald-trump-be-time-person-of-the-year-2026",
+            "rules": "Source: the TIME magazine cover or covers announcing the 2026 Person of the Year. A listed person qualifies if explicitly named, or if directly associated with a named group or concept and pictured on any official TIME cover. If several people are explicitly named, each counts. Resolves No if no Person of the Year is announced by June 30, 2027, 11:59 PM ET."},
+      "b": {"venue": "kalshi", "title": "TIME Person of the Year 2026", "url": "https://kalshi-public-docs.s3.amazonaws.com/contract_terms/TIME.pdf",
+            "rules": "Source: TIME. A person resolves Yes only if explicitly named as the Person of the Year; association with a winning group or concept is not enough on its own, though a named person pictured on the cover of a group winner can count. Vague wording is read by its most simple reasonable meaning. Expires the first 10:00 AM ET after the release, or one year after the year ends."},
+      "label": "material",
+      "note": "Different test for who counts (associated and pictured vs explicitly named). In 2025, with 'Architects of AI', Jensen Huang bets paid on Kalshi but lost on Polymarket.",
+      "evidence": "https://www.interest.co.nz/investing/136754/erin-lockwood-parses-confusion-over-winning-bets-times-person-year-and-explains"
+    },
+    {
+      "id": "fed-dec-2026",
+      "event": "Fed decision at the December 9, 2026 FOMC meeting",
+      "a": {"venue": "polymarket", "title": "Fed decision in December?", "url": "https://polymarket.com/event/fed-decision-in-december-20260729232808632",
+            "rules": "Resolves on the change in the upper bound of the federal funds target range in basis points versus the level before the meeting, per the FOMC statement for the December 8-9 meeting; changes not listed are rounded up to the nearest 25 bps. If no statement is released by the end date of the next scheduled meeting, resolves No change."},
+      "b": {"venue": "kalshi", "title": "Fed decision in December?", "url": "https://kalshi-public-docs.s3.amazonaws.com/contract_terms/FEDDECISION.pdf",
+            "rules": "Resolves on the FOMC's decision on the federal funds target range. If the meeting is cancelled, resolves No change. Postponement is not addressed; expiry can be up to three months after the meeting, and if no expiration value exists Kalshi may determine payouts under Rule 6.3(b)."},
+      "label": "edge",
+      "note": "Same outcome in any normal meeting. They differ only if the meeting is delayed or the decision is unusual.",
+      "rules_a_source_note": "Polymarket rules taken from a third-party mirror; check against the live Rules section."
+    },
+    {
+      "id": "nba-champion-2027",
+      "event": "2027 NBA champion",
+      "a": {"venue": "polymarket", "title": "Will Chicago Bulls win the 2027 NBA Finals?", "url": "https://orrery.me/markets/will-chicago-bulls-win-the-2027-nba-finals",
+            "rules": "Resolves Yes if the team is determined champion of the NBA for the 2026-27 season, per official NBA information or a consensus of credible reporting. If the season is cancelled or no champion is declared by June 30, 2027, the event resolves Other. Ties resolve to the team first alphabetically."},
+      "b": {"venue": "kalshi", "title": "NBA champion", "url": "https://kalshi-public-docs.s3.amazonaws.com/contract_terms/NBA.pdf",
+            "rules": "Source: the league plus AP, ESPN, WSJ and Fox Sports; pays on the first official final result. If cancelled or there is no official result, Yes holders receive the last traded price. If several winners are reported, the payout is split evenly. Postponed finals stay open up to two weeks; suspended up to two years."},
+      "label": "edge",
+      "note": "Same outcome whenever a champion is crowned. They differ only on cancellation (Other vs last traded price), ties, and how long a delay can run. Kalshi's terms here are a general sports template."
+    }
+  ]
+}

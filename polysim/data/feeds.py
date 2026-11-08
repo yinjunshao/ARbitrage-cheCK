@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import heapq
 import json
 import time
@@ -30,11 +31,32 @@ def write_events(path: str | Path, events: Iterable[Event]) -> int:
 
 
 def read_events(path: str | Path) -> Iterator[Event]:
-    with open(path, encoding="utf-8") as fh:
+    """Events from a JSONL file (``.gz`` is read transparently)."""
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if line:
                 yield event_from_dict(json.loads(line))
+
+
+def read_event_files(paths: Iterable[str | Path]) -> list[Event]:
+    """Read several files (or recorder folders) and return one time-ordered list.
+
+    A folder means every ``books-*.jsonl.gz`` in it plus its ``resolutions.jsonl``.
+    """
+    files: list[Path] = []
+    for p in map(Path, paths):
+        if p.is_dir():
+            files += sorted(p.glob("books-*.jsonl.gz")) + sorted(p.glob("books-*.jsonl"))
+            if (p / "resolutions.jsonl").exists():
+                files.append(p / "resolutions.jsonl")
+        else:
+            files.append(p)
+    events = [ev for f in files for ev in read_events(f)]
+    # books before a resolution at the same instant
+    events.sort(key=lambda e: (e.ts, type(e).__name__ == "ResolutionEvent"))
+    return events
 
 
 def market_to_dict(m: Market) -> dict:
@@ -50,6 +72,8 @@ def market_to_dict(m: Market) -> dict:
         "fee_rate": m.fee_rate,
         "fee_exponent": m.fee_exponent,
         "fee_taker_only": m.fee_taker_only,
+        "event_slug": m.event_slug,
+        "group_title": m.group_title,
     }
 
 
@@ -66,6 +90,8 @@ def market_from_dict(d: dict) -> Market:
         fee_rate=d.get("fee_rate"),
         fee_exponent=float(d.get("fee_exponent", 1.0)),
         fee_taker_only=bool(d.get("fee_taker_only", True)),
+        event_slug=d.get("event_slug", ""),
+        group_title=d.get("group_title", ""),
     )
 
 

@@ -23,10 +23,14 @@ from .models import (
 from .portfolio import InsufficientFunds, Portfolio, Position
 from .risk import RiskLimits, RiskManager
 from .strategy import Strategy, StrategyContext
+from .tickets import Ticket, TicketLeg, ticket_from_core
 
 __version__ = "0.1.0"
 
 __all__ = [
+    "Ticket",
+    "TicketLeg",
+    "ticket_from_core",
     "Approval",
     "ApprovalRequest",
     "AuditLog",
