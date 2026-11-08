@@ -4,6 +4,18 @@ polysim takes a trade idea and plays it out **on paper** against real Polymarket
 
 > **Paper trading only.** polysim has no code that places, signs or cancels a real order, and it holds no keys, wallets or logins. It only sends read-only GET requests to Polymarket's public endpoints. Every number it prints is a simulated result, not real-world performance.
 
+## Results at a glance (paper results on real, forward-recorded data)
+
+| Question | Result | Uncertainty / limits |
+|---|---|---|
+| How often does a price-only checker (the benchmark) cry "arbitrage"? | **~7,200 alarms** in our 7–8 Nov recording (ladders 3,117, Yes+No 4,101) | 11 events, ~3–4 h of clean one-minute snapshots |
+| How many were tradeable after real asks, taker fees, depth and timing? | **0** (arbcheck core, normal limits). By the rule of three, fewer than ~1.7% of the 178 recorded rounds had one (95%), for these events and this period | Rounds are not independent, so the true interval is wider |
+| Is there any strict, riskless arbitrage at all? | Yes, in the corners: e.g. 99.4¢ + 0.5¢ for a $1 floor. With every threshold at zero the core approved 192; the paper desk filled them for **$8.27 locked in on $20,500 tied up ~53 days (~0.16% a year)**. The 20 that resolved all paid their floor | Recorded books are a minute apart, so replays can't show the book moving during the 2 s latency |
+| Did the checker catch a false arbitrage? | Yes, in our own engine: "dip to X" ladders ordered backwards produced **1,636 fake "locked-in profits"**, now blocked | Fix requested in the core (CORE_REQUESTS #6) |
+| Can the LLM catch rule differences a price check can't see? | On 5 labelled real cross-venue pairs: **Gemini caught 3/3** material differences for the right reason; the title-only baseline and the keyword reader caught **0/3** | n = 5. 95% interval for 3/3 is 29–100%. Gemini also flagged **2/2** edge pairs (interval 16–100%), so it does not yet tell rare from material. Rules were summaries; one labeller |
+
+Every number here is a simulated (paper) result, not real-world performance. Details: [Paper desk](#paper-desk-polysim-paper), [Rule check](#rule-check-on-real-cross-venue-pairs-frame--gemini).
+
 ## Who it is for and where it fits
 
 The project's user is a Polymarket trader (in a country where Polymarket is available) who sees a "risk-free" arbitrage posted online and has to decide whether to take it.
