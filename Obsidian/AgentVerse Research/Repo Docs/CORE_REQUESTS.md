@@ -1,9 +1,9 @@
 ---
 tags: [agentverse, repo-doc]
 source: docs/CORE_REQUESTS.md
-synced: 2026-11-08 13:20
+synced: 2026-11-08 13:35
 ---
-> Copy of `docs/CORE_REQUESTS.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 13:20. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
+> Copy of `docs/CORE_REQUESTS.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 13:35. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
 
 # Requests for the core (Debby)
 

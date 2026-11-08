@@ -79,7 +79,7 @@ Full spec in `docs/DESIGN.md`. In short:
 2. Press **Scan now**. It uses the sources, kinds and sports ticked on *Scan & check* and takes about 3–5 minutes. Keep **Novig** and **Sports → Premier League** ticked so Polymarket ↔ Novig screens appear.
 3. Read the tiles. Look at *Price gaps before costs* against *survive costs*.
 4. On a card, press **Calculate returns** and change the size or prices. For a screened pair, press **Send to checker** to have Gemini compare the rules, then confirm it on *Opportunities*.
-5. No network or Gemini needed: `.venv\Scripts\python.exe scripts\preview_board.py` serves the board on http://127.0.0.1:8090/board using the core's invented demo markets. One of them is a real arbitrage. Use this to look at the design only; **none of those markets are real**.
+5. **There is no demo mode.** The app scans live data by itself on start and every 15 minutes (see [[17 Run, Config & Operations]]), and the Board says "● LIVE DATA" with the scan's age. The offline preview with invented markets was deleted; invented markets exist only in the tests and the explicit test-data mode.
 
 ## What to expect
 - A live scan today found Polymarket ↔ Novig Premier League screens. For example Liverpool: 63.0¢ + 36.5¢ = 99.5¢, a 1.2¢ price gap that the core shows dies at the fees-and-depth stage (0.5¢). That honest "gap dies here" view is the product.

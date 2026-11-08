@@ -363,6 +363,20 @@ class ArbcheckAdapter:
         self._note_sports(ev)
         return [self.to_frame(cm, tags) for cm in polymarket.stubs_from_event(ev)[: self.max_per_event]]
 
+    def list_games(self, venues: list[str]) -> list[Market]:
+        """The quick lane: only game markets (Novig, and Polymarket's games of the ticked leagues): a few dozen
+        markets in seconds, so the Board can show real, priced pairs while the full discovery is still reading."""
+        if self.demo:
+            return []
+        wanted = {v.lower() for v in venues}
+        self.last_notes = []
+        out: list[Market] = []
+        if "novig" in wanted:
+            out += self._novig_markets()
+        if "polymarket" in wanted:
+            out += self._sports_events()
+        return out
+
     def _novig_frame(self, m: dict, ev: dict | None, hydrate: bool = False) -> Market:
         """One Novig market -> registered core Market -> frame Market (sports fields filled in)."""
         from . import novig

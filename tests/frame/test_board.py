@@ -55,6 +55,44 @@ def test_calculator_on_the_cores_own_book_matches_the_core(cfg, monkeypatch):
     assert curve[0]["profit"] == pytest.approx(core.net_profit, abs=0.05)      # fee rounding only
 
 
+def test_saved_board_round_trips_and_never_stores_kalshi(cfg, monkeypatch, tmp_path):
+    p = _pipeline(cfg, monkeypatch)
+    live = board.rows(p)
+    assert live
+    # one Kalshi row must be dropped from the file; pretend the first row is a Kalshi one
+    live_ids = {r.id for r in live}
+    first = live[0]
+    first.venues = ["kalshi"]
+    p.screens.clear()
+    path = tmp_path / "board.json"
+    board.save(p, path)
+    rows, saved_at = board.load(path)
+    assert saved_at > 0 and rows and all(r.saved for r in rows)
+    assert {r.id for r in rows} <= live_ids
+    assert all("kalshi" not in r.venues for r in rows)
+    a = next(r for r in rows if r.legs)                       # quotes and order-book levels survive the trip
+    assert a.legs[0]["price"] and a.levels and a.stages["after_fees"] is not None
+
+
+def test_a_missing_or_broken_saved_board_is_just_empty(tmp_path):
+    assert board.load(tmp_path / "nope.json") == ([], 0.0)
+    (tmp_path / "bad.json").write_text("{not json", encoding="utf-8")
+    assert board.load(tmp_path / "bad.json") == ([], 0.0)
+
+
+def test_restart_shows_saved_rows_until_the_first_live_scan_completes(cfg, monkeypatch):
+    from dataclasses import replace
+    p = _pipeline(cfg, monkeypatch)
+    board.save(p, cfg.board_path)
+    monkeypatch.setenv("FRAME_EMBEDDER", "hashing")
+    p2 = build(demo=True, llm=FakeLLM(lambda **_: None), cfg=replace(cfg, core="arbcheck"))
+    assert p2.snapshot_active and p2.last_scan_at > 0
+    shown = board.rows(p2)
+    assert shown and all(r.saved for r in shown)                # nothing priced yet this session: all saved rows
+    p2.snapshot_active = False
+    assert board.rows(p2) == []                                 # after a live scan the saved copy is gone
+
+
 def test_board_sorts_put_real_arbitrage_first(cfg, monkeypatch):
     p = _pipeline(cfg, monkeypatch)
     rows = sorted(board.rows(p), key=board.SORTS["Best first (recommended)"])

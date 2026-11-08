@@ -47,6 +47,7 @@ class Row:
     headline: str = ""
     n_outcomes: int = 1
     floor: float = 1.0              # the core's guaranteed payout per basket (e.g. $3 for NO on every outcome of 4)
+    saved: bool = False             # True = restored from the last saved scan, not priced in this session
 
     @property
     def gap_before_costs(self) -> bool:
@@ -101,9 +102,64 @@ def rows(p) -> list[Row]:
                  live=any(sports.in_play(m) for m in f.legs), href=f"/finding/{f.id}")
         r.n_outcomes = len(f.legs)
         out.append(r)
+    if getattr(p, "snapshot_active", False):
+        # Right after a restart, until this session's first scan completes: show the saved rows that live pricing
+        # has not replaced yet, marked as saved (with their real age).
+        for r in getattr(p, "snapshot", []):
+            if r.id not in seen and r.id not in {x.id for x in out}:
+                out.append(r)
     for r in out:
         r.score, r.why = score(r)
     return out
+
+
+def _live_rows(p) -> list[Row]:
+    snap, p.snapshot_active = getattr(p, "snapshot_active", False), False
+    try:
+        return rows(p)
+    finally:
+        p.snapshot_active = snap
+
+
+def save(p, path) -> None:
+    """Write the board to disk (atomically). Kalshi rows are never written: its Developer Agreement bars storing its data.
+    This is a local file for your own use; Polymarket and Novig data must not be redistributed."""
+    import json
+    from dataclasses import fields
+    from pathlib import Path
+    out = []
+    for r in _live_rows(p):
+        if "kalshi" in r.venues or any(q.get("venue") == "kalshi" for q in r.legs):
+            continue
+        d = {f.name: getattr(r, f.name) for f in fields(r) if f.name != "pair"}
+        d["pair"] = [m.model_dump() for m in r.pair] if r.pair else None
+        out.append(d)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"saved_at": time.time(), "rows": out}), encoding="utf-8")
+    tmp.replace(path)
+
+
+def load(path) -> tuple[list[Row], float]:
+    """-> (rows, saved_at). A missing or unreadable file is simply an empty board, never an error."""
+    import json
+    from dataclasses import fields
+    from pathlib import Path
+    from .schemas import Market
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        names = {f.name for f in fields(Row)}
+        rows_ = []
+        for d in doc["rows"]:
+            pair = d.pop("pair", None)
+            r = Row(**{k: v for k, v in d.items() if k in names})
+            r.pair = tuple(Market(**m) for m in pair) if pair else None
+            r.saved = True
+            rows_.append(r)
+        return rows_, float(doc.get("saved_at", 0.0))
+    except (OSError, ValueError, KeyError, TypeError):
+        return [], 0.0
 
 
 def score(r: Row) -> tuple[float, list[str]]:

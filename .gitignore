@@ -23,3 +23,5 @@ data/testdata/
 polysim-recordings-*
 recordings/
 data/hfdata/
+data/frame/board_snapshot.json
+.venv/.tests-ok

@@ -1,9 +1,9 @@
 ---
 tags: [agentverse, repo-doc]
 source: docs/FRAME.md
-synced: 2026-11-08 13:20
+synced: 2026-11-08 13:35
 ---
-> Copy of `docs/FRAME.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 13:20. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
+> Copy of `docs/FRAME.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 13:35. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
 
 # False-Arb Checker on live data: LLM frame (Gemini) + numeric core (arbcheck) + polysim
 
@@ -23,11 +23,11 @@ synced: 2026-11-08 13:20
 
 ## Run (Windows)
 
-Double-click `run.bat` for a numbered menu:
+Double-click `run.bat` for a numbered menu (it also shows what is already running):
 
 | # | Mode | Gemini? |
 |---|---|---|
-| 1 | App on live markets (tests first) | judging + explanations |
+| 1 | **App on LIVE data**: opens the Board, stops any old copy first | judging + explanations |
 | 2 | App, Kalshi on for this run (members only) | yes |
 | 3 | Monitor: the smart watch loop, no browser | yes, for new pairs |
 | 4 | Monitor with Kalshi | yes |
@@ -36,9 +36,25 @@ Double-click `run.bat` for a numbered menu:
 | 7 | Test data: the app on the converted data | judging + explanations |
 | 8 | Every test | no (one live smoke test if a key is set) |
 | 9 | The core's own app | no |
+| S | **Stop all servers** | no |
 
-`run.bat <mode>` still works (`app`, `kalshi`, `monitor`, `monitor-kalshi`, `testdata-convert`, `testdata-core`,
-`testdata-app`, `test`, `core`). Needs `GEMINI_API_KEY` in `.env` (never in `.env.example`).
+`run.bat <mode>` works too: `app`, `kalshi`, `monitor`, `monitor-kalshi`, `testdata-convert`, `testdata-core`, `testdata-app`, `test`, `core`, `stop`, `status`, `help`. Needs `GEMINI_API_KEY` in `.env` (never in `.env.example`).
+
+**What makes it smarter** (`run.bat` + `scripts/launcher.py`):
+- **One copy at a time:** `app` stops any old copy of the app or monitor first, so a stale server can never answer on your port.
+- **Free port:** it takes 8080, or the next free port if something else holds it, and tells you the address.
+- **Tests only when needed:** it re-runs the tests only if the code changed since they last passed (`run.bat test` always runs them). Starting the app is otherwise instant.
+- **Browser opens when ready:** it waits until the server answers, then opens the Board, instead of opening a dead page.
+- **Set-up is automatic** (`.venv`, packages, `.env`) and does nothing when everything is in place.
+- **`stop` and `status`** only ever touch our own servers (the app, monitor, the core's app, and the `run.bat` windows that launched them), never anything else.
+
+## Real data by default (no demo data in the app)
+
+The app starts scanning **live** markets by itself: once at start (unless the saved scan is under 15 minutes old) and then every 15 minutes (`FRAME_AUTOSCAN`, `FRAME_AUTOSCAN_EVERY_S`). The scan has a **quick lane**: it reads only the game markets first (Novig, and Polymarket's games of the ticked sports; a few dozen markets) and prices their outcome sets and same-match pairs across venues at once. The full discovery then runs behind it, followed by structure, screens and, last, Gemini's judgements. **Real rows appear on the Board within about a minute** while the slow steps are still running.
+
+The last scan is saved to `data/frame/board_snapshot.json`, so the Board is not empty after a restart; those rows are marked "saved" with their real age and are replaced when the new scan finishes. **Kalshi rows are never saved** (its Developer Agreement), and the file is local and gitignored (Polymarket and Novig data must not be redistributed).
+
+Invented markets exist only inside the tests and the explicit test-data mode, which shows a red "TEST DATA" banner.
 
 ## The smart loop (`frame/watch.py`, `Pipeline.watch_tick`)
 

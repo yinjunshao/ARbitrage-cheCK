@@ -792,6 +792,27 @@ async def _background_watch():
             print(f"[watch] {type(e).__name__}: {e}", flush=True)
 
 
+async def _autoscan():
+    """Live data by itself: scan once when the app starts (unless the saved scan is fresh), then every
+    FRAME_AUTOSCAN_EVERY_S. Skipped while another scan runs, in test-data mode, or if FRAME_AUTOSCAN=0."""
+    global SCANNING
+    from nicegui import run
+    await asyncio.sleep(3)
+    while True:
+        due = time.time() - (P.last_scan_at or 0) >= P.cfg.autoscan_every_s
+        if P.cfg.autoscan and MODE == "live" and due and not SCANNING and PREFS.get("venues") and PREFS.get("categories"):
+            SCANNING = True
+            try:
+                await run.io_bound(P.scan, sorted(PREFS["venues"]), sorted(PREFS["categories"]), sorted(PREFS["leagues"]))
+            except Exception as e:           # the loop never dies; the board shows the error
+                print(f"[autoscan] {type(e).__name__}: {e}", flush=True)
+                P.last_scan_at = time.time() - P.cfg.autoscan_every_s + 120      # retry in about 2 minutes
+            finally:
+                SCANNING = False
+        await asyncio.sleep(20)
+
+
+
 def main():
     global P, MODE
     ap = argparse.ArgumentParser()
@@ -817,6 +838,7 @@ def main():
     style.install()
     board_page.register(lambda: P, run_scan_global, busy, send_to_checker)
     app.on_startup(_background_watch)
+    app.on_startup(_autoscan)
     ui.run(title="False-Arb Checker", port=args.port, host="127.0.0.1", reload=False, show=False, dark=False)
 
 

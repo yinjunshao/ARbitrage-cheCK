@@ -22,7 +22,7 @@ from .discover import discover, load_fixture_markets
 from .fewshot import FewShot, LabelStore
 from .judge import Judge, pair_id
 from .llm import LLMClient, make_llm
-from . import arbtypes, sports
+from . import arbtypes, board, sports
 from .narrate import narrate, structural_narrative
 from .watch import WatchItem, WatchList, leg_dict
 from .rulediff import compare_rules
@@ -141,6 +141,12 @@ class Pipeline:
         self.watch = WatchList(cfg.watch_path)
         self.alerts: list[tuple[float, WatchItem, CoreResult]] = []   # watch re-checks that showed a gap
         self.last_scan: ScanSummary | None = None
+        self.last_scan_at = 0.0
+        self.scanning = False       # a scan is running (the board shows it)
+        self.scan_error = ""
+        # The last scan's board rows, saved to disk (never Kalshi rows) so the board is not empty after a restart.
+        self.snapshot, self.last_scan_at = board.load(cfg.board_path)
+        self.snapshot_active = bool(self.snapshot)
         self.status = ""            # what a running scan is doing right now
         self.on_status = None       # optional callback(text)
 
@@ -159,6 +165,17 @@ class Pipeline:
     # ------------------------------------------------------------ discover + judge
     def scan(self, venues: list[str] | None = None, categories: list[str] | None = None,
              leagues: list[str] | None = None) -> ScanSummary:
+        self.scanning, self.scan_error = True, ""
+        try:
+            return self._scan(venues, categories, leagues)
+        except Exception as e:
+            self.scan_error = f"{type(e).__name__}: {e}"
+            raise
+        finally:
+            self.scanning = False
+
+    def _scan(self, venues: list[str] | None = None, categories: list[str] | None = None,
+              leagues: list[str] | None = None) -> ScanSummary:
         """venues / categories / leagues: what to scan (the app's checkboxes). None = the config defaults.
         categories 'all' or None = every category. Sports markets are kept only for the ticked leagues
         (a sports market whose league can't be told, e.g. Kalshi's, is kept)."""
@@ -170,9 +187,15 @@ class Pipeline:
         all_cats = not cats or "all" in cats
         if hasattr(self.adapter, "sports_leagues"):
             self.adapter.sports_leagues = leagues if (all_cats or "sports" in cats) else []
-        self._say(f"Pulling open markets from {', '.join(venues)}…")
         if hasattr(self.adapter, "progress"):
             self.adapter.progress = self._say
+        if leagues and (all_cats or "sports" in cats) and hasattr(self.adapter, "list_games"):
+            self._say("Game markets first (a few seconds): pricing same-match pairs across venues…")
+            try:
+                self._quick_lane(self.adapter.list_games(venues), s_quick := ScanSummary(scan=sid))
+            except Exception as e:                       # the quick lane never stops the full scan
+                self.scan_error = f"quick lane: {type(e).__name__}: {e}"
+        self._say(f"Pulling open markets from {', '.join(venues)}…")
         markets = discover(self.adapter, venues, self.cfg.excluded_categories, self.cfg.kalshi_member)
         markets = [m for m in markets if m.venue != "manifold"]  # play money: signal only, never a leg
         if not all_cats:
@@ -184,15 +207,50 @@ class Pipeline:
         self.audit.append("discover", {"scan": sid, "venues": list(venues), "categories": sorted(cats),
                                        "leagues": leagues, "n_markets": len(markets),
                                        "core": self.adapter.name, "notes": s.notes})
-        self.judge_candidates(markets, s)
+        # Cheapest and most board-relevant first, so the board fills while the slow Gemini step is still running:
+        # structure (sets, Yes + No), then screens (inside judge_candidates), then Gemini's judgements.
         self._say("Pricing venue-declared outcome sets with the core…")
         self.price_venue_sets(markets, s)
         self._say("Checking Yes + No of single markets with the core…")
         self.price_singles(markets, s)
+        self.save_board()
+        self.judge_candidates(markets, s)
         self.last_scan = s
+        self.last_scan_at = time.time()
+        self.snapshot_active = False            # this session now has its own live rows: drop the saved copy
+        self.save_board()
         self.audit.append("scan_done", s.__dict__)
         self._say(f"Done in {time.time() - t0:.0f}s: {s.markets} markets, {s.surfaced} suggestions for review.")
         return s
+
+    def _quick_lane(self, games: list[Market], s: ScanSummary) -> None:
+        """Price what needs no Gemini for the game markets alone: outcome sets, and same-match pairs across venues
+        (matched by code). The Board shows them seconds into a scan; the full pass later re-prices them."""
+        games = [m for m in games if m.venue != "manifold" and self._still_open(m)]
+        if not games:
+            return
+        self.price_venue_sets(games, s)
+        links = [(a, b, 1.0, "cross_game", pair_id(a, b), why) for a, b, why in sports.cross_venue_games(games)
+                 if self._rule(a, b).ok]
+        links += [(a, b, 1.0, "game_link", pair_id(a, b), why) for a, b, why in sports.game_links(games)
+                  if self._rule(a, b, nested=True).ok]
+        if links and getattr(self.adapter, "screen_pair", None) is not None:
+            self._screen_many(links, s)
+        self.save_board()
+
+    @staticmethod
+    def _still_open(m: Market) -> bool:
+        from datetime import datetime, timezone
+        try:
+            return not m.close_time_utc or datetime.fromisoformat(m.close_time_utc.replace("Z", "+00:00")) > datetime.now(timezone.utc)
+        except ValueError:
+            return True
+
+    def save_board(self) -> None:
+        try:
+            board.save(self, self.cfg.board_path)
+        except Exception as e:              # a failed save never breaks a scan
+            self.scan_error = f"could not save the board: {e}"
 
     def _rule(self, a: Market, b: Market, nested: bool = False):
         """The suggestion rules (R0-R6) with this run's time limits. nested: a ladder inside one event."""
@@ -284,7 +342,9 @@ class Pipeline:
             # cross-venue game pairs first (the board's main content), then games in play, then the soonest to close
             return (t[3] != "cross_game", not live, min(a.close_time_utc or "9", b.close_time_utc or "9"))
         out = []
-        for a, b, sim, how, pid, why in sorted(items, key=urgency)[: self.cfg.max_screens_per_scan]:
+        todo = sorted(items, key=urgency)[: self.cfg.max_screens_per_scan]
+        for n, (a, b, sim, how, pid, why) in enumerate(todo, 1):
+            self._say(f"Pricing pair {n} of {len(todo)} with the core: {a.title[:45]}…")
             try:
                 core = self.adapter.screen_pair(a, b, why=why, kind="equivalent" if how == "cross_game" else None)
             except Exception as e:
@@ -368,7 +428,9 @@ class Pipeline:
         fn = getattr(self.adapter, "exclusive_sets", None)
         if fn is None:
             return
-        for legs in fn(markets, self.cfg.max_sets_per_scan):
+        sets = fn(markets, self.cfg.max_sets_per_scan)
+        for n, legs in enumerate(sets, 1):
+            self._say(f"Pricing outcome set {n} of {len(sets)} with the core: {legs[0].title[:50]}…")
             try:
                 core = self.adapter.price_set(legs, budget)
             except Exception as e:

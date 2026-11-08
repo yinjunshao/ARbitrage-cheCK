@@ -7,11 +7,19 @@ created: 2026-11-07
 Related: [[14 Built App — How It Works]] · [[15 Suggestion Rules & Log]] · [[16 Live Data Sources]].
 
 ## Running it (Windows, from the repo root)
-**Double-click `run.bat`** for a numbered menu; it pauses at the end so the window stays open.
+**Double-click `run.bat`** for a numbered menu; it shows what is already running and pauses at the end so the window stays open.
+
+**What makes it smarter** (`run.bat` + `scripts/launcher.py`, updated 8 Nov):
+- **One copy at a time:** `app` first stops any old copy of the app or monitor, so a stale server can never answer on your port.
+- **Free port:** it uses 8080, or the next free port if something else holds it, and prints the address.
+- **Tests only when needed:** it re-runs them only if the code changed since they last passed. `run.bat test` always runs them. Otherwise the app starts at once.
+- **Browser opens when ready:** it waits until the server answers, then opens the Board.
+- **Automatic set-up** (`.venv`, packages, `.env`) that does nothing when everything is in place.
+- **`S` in the menu, or `run.bat stop`**, stops our servers; `run.bat status` lists them. They only ever touch the app, monitor, the core's app and the `run.bat` windows that launched them.
 
 | # | Mode | Gemini? | Mode name for `run.bat <mode>` |
 |---|---|---|---|
-| 1 | App on live markets (tests first), http://127.0.0.1:8080 | judging and explanations | `app` |
+| 1 | **App on LIVE markets**, opens the Board, http://127.0.0.1:8080 | judging and explanations | `app` |
 | 2 | App, Kalshi on for this run (members only) | yes | `kalshi` |
 | 3 | Monitor: the smart watch loop, no browser | for new pairs | `monitor` |
 | 4 | Monitor with Kalshi | yes | `monitor-kalshi` |
@@ -20,8 +28,15 @@ Related: [[14 Built App — How It Works]] · [[15 Suggestion Rules & Log]] · [
 | 7 | Test data: the app on the converted data | judging and explanations | `testdata-app` |
 | 8 | Every test | no | `test` |
 | 9 | The core's own app, http://127.0.0.1:8765 | no | `core` |
+| S | **Stop all servers** | no | `stop` (also `status`, `help`) |
 
 `run.bat` prints whether Kalshi is on or off. Needs a Google AI Studio key in `.env`.
+
+### Real data, by default
+- **No demo data in the app.** It scans **live** markets by itself: once at start (unless the saved scan is under 15 minutes old), then every 15 minutes (`FRAME_AUTOSCAN`, `FRAME_AUTOSCAN_EVERY_S`).
+- **The Board fills fast:** the scan has a **quick lane** that reads only the game markets first (Novig and Polymarket's games of the ticked sports) and prices their outcome sets and same-match pairs at once; the full discovery, structure, screens and Gemini follow. Real rows appear within about a minute. A "● SCANNING LIVE" line shows the current step and a "● LIVE DATA · last full scan N min ago" line shows the age.
+- **Saved scan:** the last scan is kept in `data/frame/board_snapshot.json`, so the Board isn't empty after a restart. Those rows are marked "saved" with their real age and are replaced when the new scan finishes. **Kalshi rows are never saved.** The file is local and gitignored.
+- **Invented markets** exist only inside the tests and the explicit test-data mode, which shows a red "TEST DATA" banner. The old offline design preview script was deleted.
 
 ### Test-data and recording commands (no Gemini unless noted)
 | Command | What it does |
@@ -52,6 +67,8 @@ Recordings live in `recordings/`, which is gitignored. Polymarket data may not b
 | `FRAME_MIN_SIMILARITY` | `0.45` | candidate cut-off |
 | `FRAME_MONITOR_EVERY_S` | `300` | monitor cycle |
 | `FRAME_EMBEDDER` | bge if installed | `hashing` skips the model download |
+| `FRAME_AUTOSCAN` | `1` | the app scans live data by itself (`0` = only when you press Scan now) |
+| `FRAME_AUTOSCAN_EVERY_S` | `900` | how often it rescans |
 | `FRAME_MAX_SCREENS_PER_SCAN` | `40` | ladders and in-game links screened by the core per scan (no LLM) |
 | `FRAME_WATCH_TICK_S` | `30` | how often the watch loop looks for due re-checks |
 | `FRAME_APP_WATCH` | `1` | `0` turns the app's own background watch off (when the monitor runs) |

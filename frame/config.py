@@ -64,6 +64,10 @@ class Config:
     suggestions_path: Path = DATA / "suggestions.jsonl"
     confirmed_path: Path = DATA / "confirmed.jsonl"
     watch_path: Path = DATA / "watchlist.json"
+    board_path: Path = DATA / "board_snapshot.json"
+    # The app scans live data by itself: once at start (unless a saved scan is fresh) and then every N seconds.
+    autoscan: bool = os.getenv("FRAME_AUTOSCAN", "1") != "0"
+    autoscan_every_s: int = int(os.getenv("FRAME_AUTOSCAN_EVERY_S", "900"))
     cache_dir: Path = DATA / "cache"
     fixtures_dir: Path = ROOT / "tests" / "frame" / "fixtures"      # test-only sample data
     replay_file: Path = ROOT / "tests" / "frame" / "fixtures" / "llm_replay_sample.json"

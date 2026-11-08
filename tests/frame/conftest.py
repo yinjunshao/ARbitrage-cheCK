@@ -23,7 +23,7 @@ def cfg(tmp_path):
     return replace(Config(), gemini_api_key=None, audit_path=tmp_path / "audit.jsonl",
                    labels_path=tmp_path / "labels.jsonl", cache_dir=tmp_path / "cache",
                    suggestions_path=tmp_path / "suggestions.jsonl", confirmed_path=tmp_path / "confirmed.jsonl",
-                   watch_path=tmp_path / "watchlist.json",
+                   watch_path=tmp_path / "watchlist.json", board_path=tmp_path / "board.json", autoscan=False,
                    min_similarity=0.0, top_k=8,
                    fixtures_dir=FIXTURES, replay_file=FIXTURES / "llm_replay_sample.json",
                    core="fake", kalshi_member=True,

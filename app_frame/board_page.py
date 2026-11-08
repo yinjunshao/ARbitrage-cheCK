@@ -192,7 +192,8 @@ def _card_html(r: board.Row) -> str:
     return (f'<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">{chips}<span style="flex:1"></span>'
             f'{badge(r.verdict, r.kind == "screen")}'
             f'<span class="fa-chip" title="{esc(" · ".join(r.why))}">priority {r.score:.0f}</span>'
-            f'<span class="fa-chip">{esc(board.age_text(r.at))} old</span></div>'
+            f'<span class="fa-chip" title="{"restored from the last saved scan: prices are from then" if r.saved else "priced in this session"}">'
+            f'{"saved · " if r.saved else ""}{esc(board.age_text(r.at))} old</span></div>'
             f'<div class="fa-title" style="margin-top:6px">{esc(r.title)}</div>{legs}{bars}{metrics}{claim}{flags}')
 
 
@@ -220,6 +221,8 @@ def register(get_p, scan_cb, busy_cb, send_cb) -> None:
                 ui.button("Calculator", icon="calculate", on_click=lambda: open_calculator(None, host, F)).props("outline")
                 scan_btn = ui.button("Scan now", icon="radar")
 
+            live = ui.refreshable(lambda: _live_status(P))
+            live()
             tiles = ui.refreshable(lambda: _tiles(P))
             tiles()
 
@@ -268,7 +271,8 @@ def register(get_p, scan_cb, busy_cb, send_cb) -> None:
 
         scan_btn.on_click(go_scan)
         # live refresh every 15 s, paused while the calculator is open (and it is built outside the list anyway)
-        ui.timer(15, lambda: None if F["dialog"] else (tiles.refresh(), body.refresh()))
+        ui.timer(15, lambda: None if F["dialog"] else (live.refresh(), tiles.refresh(), body.refresh()))
+        ui.timer(2, lambda: live.refresh() if P.scanning else None)       # a running scan's step, nearly live
 
     def _filtered(P, F) -> list[board.Row]:
         out = []
@@ -295,6 +299,24 @@ def register(get_p, scan_cb, busy_cb, send_cb) -> None:
         out.sort(key=board.SORTS[F["sort"]])
         return out
 
+    def _live_status(P) -> None:
+        """One line that says where the data comes from and how old it is: always real, never demo."""
+        age = time.time() - P.last_scan_at if P.last_scan_at else None
+        every = P.cfg.autoscan_every_s // 60
+        if P.scanning:
+            ui.html(f'<div class="fa-flags"><span class="fa-badge go">● SCANNING LIVE</span> {esc(P.status)}</div>', sanitize=False)
+        elif P.scan_error:
+            ui.html(f'<div class="fa-flags"><span class="fa-badge stop">✗ last scan failed</span> {esc(P.scan_error)}. '
+                    f'Retrying automatically.</div>', sanitize=False)
+        elif age is None:
+            ui.html('<div class="fa-flags"><span class="fa-badge flat">– no scan yet</span> The first live scan starts by itself '
+                    'in a few seconds (or press Scan now).</div>', sanitize=False)
+        else:
+            saved = " Showing the saved scan from your last run until the new one finishes." if P.snapshot_active else ""
+            nxt = f" Next automatic scan in about {max(0, every - int(age // 60))} min." if P.cfg.autoscan else ""
+            ui.html(f'<div class="fa-flags"><span class="fa-badge go">● LIVE DATA</span> Last full scan {board.age_text(P.last_scan_at)} ago.'
+                    f'{esc(saved)}{esc(nxt)}</div>', sanitize=False)
+
     def _tiles(P) -> None:
         allr = board.rows(P)
         real = [r for r in allr if r.real and r.kind != "screen"]
@@ -315,7 +337,8 @@ def register(get_p, scan_cb, busy_cb, send_cb) -> None:
         if not rows:
             with ui.element("div").classes("fa-empty"):
                 ui.label("Nothing to show with these filters." if board.rows(P) else
-                         "Nothing priced yet. Press “Scan now”: it reads live markets and prices every pair with the core.")
+                         ("Reading live markets and pricing them with the core… rows appear here as they are priced."
+                          if P.scanning else "Nothing priced yet. The first live scan starts by itself, or press “Scan now”."))
             return
         ui.label(f"{len(rows)} rows").classes("fa-sub")
         for r in rows[:F["limit"]]:
@@ -327,8 +350,12 @@ def register(get_p, scan_cb, busy_cb, send_cb) -> None:
                     if r.kind == "screen" and r.pair:
                         async def send(r=r):
                             await send_cb(r)
-                        ui.button("Send to checker", icon="fact_check", on_click=send).props("dense").tooltip(
-                            "Gemini compares the rules, you confirm, then the core prices it")
+                        b = ui.button("Send to checker", icon="fact_check", on_click=send).props("dense")
+                        if r.saved:
+                            b.disable()
+                            b.tooltip("This row is from the saved scan; it can be sent once the new scan has priced it")
+                        else:
+                            b.tooltip("Gemini compares the rules, you confirm, then the core prices it")
                     if r.href:
                         ui.button("Open detail", icon="open_in_new", on_click=lambda r=r: ui.navigate.to(r.href)).props("dense flat")
         if len(rows) > F["limit"]:
