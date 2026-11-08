@@ -118,6 +118,7 @@ class CoreResult(BaseModel):
     Units (arbcheck): prices and edges are dollars per share (0.01 = 1 cent); ret/ann_ret are fractions.
     """
     verdict: CoreVerdict
+    family: str = ""            # the core's own label: same-market | multi-outcome | cross-platform | logical
     status: str                 # raw guard status: OK | WARN | BLOCKED | NO_ARB
     headline: str               # the guard's own sentence
     kind: str                   # core relation kind

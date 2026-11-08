@@ -26,6 +26,7 @@ Related: [[14 Built App — How It Works]] · [[15 Suggestion Rules & Log]] · [
 | `FRAME_KALSHI_MEMBER` | `0` | **Kalshi switch.** `1` only if a Kalshi member runs it on their own computer |
 | `FRAME_LLM_TIMEOUT_S` | `60` | per Gemini request; a stalled call is skipped instead of hanging the scan |
 | `FRAME_MAX_JUDGE_PER_SCAN` | `30` | Gemini judgements per scan |
+| `FRAME_MAX_SINGLES_PER_SCAN` | `30` | "Yes + No under $1" checks per scan (2 book requests each, no LLM) |
 | `FRAME_MAX_DAYS_TO_CLOSE` | `45` | rule R5 |
 | `FRAME_MAX_CLOSE_GAP_DAYS` | `14` | rule R6 |
 | `FRAME_MIN_SIMILARITY` | `0.45` | candidate cut-off |

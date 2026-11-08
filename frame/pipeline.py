@@ -1,4 +1,4 @@
-﻿"""Fixed, code-orchestrated pipeline. The LLM is called at three points only.
+"""Fixed, code-orchestrated pipeline. The LLM is called at three points only.
 
 discover -> candidates -> suggestion rules -> judge -> rule-diff -> [HUMAN CONFIRM] -> core.price -> narrate
          -> approve/review/kill
@@ -22,7 +22,8 @@ from .discover import discover, load_fixture_markets
 from .fewshot import FewShot, LabelStore
 from .judge import Judge, pair_id
 from .llm import LLMClient, make_llm
-from .narrate import narrate
+from . import arbtypes
+from .narrate import narrate, structural_narrative
 from .rulediff import compare_rules
 from .rules import check_pair as rule_check
 from .schemas import CoreResult, JudgedPair, Market, NarratedResult, Relation, RelationType, VerifiedRuleDiff
@@ -65,6 +66,32 @@ class Case:
     def id(self) -> str:
         return self.judged.pair_id
 
+    @property
+    def arb_type(self) -> str:
+        """Which kind of arbitrage this would be: the core's label once priced, else from the judged relation."""
+        if self.core and self.core.family:
+            return self.core.family
+        rel = self.relation.relation if self.relation else self.judged.verdict.relation
+        return arbtypes.classify(rel, [self.judged.a.venue, self.judged.b.venue])
+
+    @property
+    def category(self) -> str:
+        return self.judged.a.category or self.judged.b.category or "other"
+
+
+@dataclass
+class Finding:
+    """Something priced from structure alone (a venue-declared outcome set, or Yes + No of one market):
+    no LLM judgement is involved, so there is nothing for a human to confirm before the core prices it."""
+    id: str
+    arb_type: str
+    legs: list[Market]
+    core: CoreResult
+    narrated: NarratedResult
+    category: str = "other"
+    title: str = ""
+    scan: str = ""
+
 
 @dataclass
 class ScanSummary:
@@ -76,6 +103,7 @@ class ScanSummary:
     judged: int = 0
     surfaced: int = 0
     sets: int = 0
+    singles: int = 0
     set_hits: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -88,6 +116,7 @@ class Pipeline:
         self.fewshot = FewShot(labels, embedder, cfg.fewshot_k)
         self.judge = Judge(llm, cfg.judge_model, cfg.cache_dir, self.fewshot, cfg.judge_concurrency)
         self.cases: dict[str, Case] = {}
+        self.findings: dict[str, Finding] = {}
         self.last_scan: ScanSummary | None = None
         self.status = ""            # what a running scan is doing right now
         self.on_status = None       # optional callback(text)
@@ -108,7 +137,7 @@ class Pipeline:
     def scan(self, venues: list[str] = ("polymarket", "kalshi")) -> ScanSummary:
         sid = time.strftime("%Y%m%dT%H%M%S")
         t0 = time.time()
-        self._say("Pulling open markets from the venuesâ€¦")
+        self._say("Pulling open markets from the venues…")
         if hasattr(self.adapter, "progress"):
             self.adapter.progress = self._say
         markets = discover(self.adapter, list(venues), self.cfg.excluded_categories, self.cfg.kalshi_member)
@@ -117,8 +146,10 @@ class Pipeline:
         self.audit.append("discover", {"scan": sid, "venues": list(venues), "n_markets": len(markets),
                                        "core": self.adapter.name, "notes": s.notes})
         self.judge_candidates(markets, s)
-        self._say(f"Pricing venue-declared outcome sets with the coreâ€¦")
+        self._say("Pricing venue-declared outcome sets with the core…")
         self.price_venue_sets(markets, s)
+        self._say("Checking Yes + No of single markets with the core…")
+        self.price_singles(markets, s)
         self.last_scan = s
         self.audit.append("scan_done", s.__dict__)
         self._say(f"Done in {time.time() - t0:.0f}s: {s.markets} markets, {s.surfaced} suggestions for review.")
@@ -140,7 +171,7 @@ class Pipeline:
     def judge_candidates(self, markets: list[Market], s: ScanSummary | None = None) -> list[Case]:
         s = s or ScanSummary(scan=time.strftime("%Y%m%dT%H%M%S"), markets=len(markets))
         link = getattr(self.adapter, "cheap_link", None)
-        self._say(f"Finding candidate pairs among {len(markets):,} markets and applying the suggestion rulesâ€¦")
+        self._say(f"Finding candidate pairs among {len(markets):,} markets and applying the suggestion rules…")
         raw = cand.generate(markets, self.embedder, self.cfg.top_k, self.cfg.date_window_days,
                             self.cfg.min_similarity, link)
         allowed = []
@@ -156,16 +187,16 @@ class Pipeline:
             self.suggestions.candidate(pid, a, b, how, sim, s.scan)
             allowed.append((a, b, sim, how, pid))
         s.candidates = len(allowed)
-        # LLM budget: within-event (core-linked) first, then the most similar. Cached verdicts are free.
-        allowed.sort(key=lambda t: (t[3] != "within_event", -t[2]))
-        todo = allowed[: self.cfg.max_judge_per_scan]
+        # LLM budget, shared out evenly across categories so one busy category (crypto has the most markets)
+        # can't use it all. Inside a category: cross-venue pairs first, then within-event, then by similarity.
+        todo = balanced(allowed, self.cfg.max_judge_per_scan)
         s.deferred = len(allowed) - len(todo)  # their `candidate` row stands until a later scan judges them
-        self._say(f"Asking Gemini about {len(todo)} of {len(allowed):,} candidate pairs ({s.rule_refused:,} refused by rules)â€¦")
+        self._say(f"Asking Gemini about {len(todo)} of {len(allowed):,} candidate pairs ({s.rule_refused:,} refused by rules)…")
         judged = self.judge.judge_many([(a, b) for a, b, *_ in todo])
         # Rule comparisons for the surfaced ones, in parallel (the slow part of a scan).
         from concurrent.futures import ThreadPoolExecutor
         need = [jp for jp in judged if self._surface(jp) and jp.pair_id not in self.cases]
-        self._say(f"Gemini is comparing the resolution rules of {len(need)} related pairsâ€¦")
+        self._say(f"Gemini is comparing the resolution rules of {len(need)} related pairs…")
         with ThreadPoolExecutor(max_workers=self.cfg.judge_concurrency) as ex:
             diffs = dict(zip([jp.pair_id for jp in need], ex.map(
                 lambda jp: compare_rules(self.llm, self.cfg.rules_model, jp.a, jp.b, self.adapter, jp.verdict.relation),
@@ -191,14 +222,41 @@ class Pipeline:
             s.sets += 1
             if core.verdict in ("worth_a_look", "look_closely"):
                 s.set_hits.append(f"{legs[0].event_id}: {core.verdict} | {core.headline}")
-            self.suggestions.venue_set(f"set:{legs[0].venue}:{legs[0].event_id}", legs, core)
+            fid = f"set:{legs[0].venue}:{legs[0].event_id}"
+            self.suggestions.venue_set(fid, legs, core)
+            self._add_finding(fid, legs, core, s.scan, f"{len(legs)} outcomes of one event: " + legs[0].title[:80])
+
+    def price_singles(self, markets: list[Market], s: ScanSummary, budget: float = 300.0) -> None:
+        """Yes + No of one market under $1. Needs real books, so only a few markets per scan (spread over categories)."""
+        pick, price = getattr(self.adapter, "single_candidates", None), getattr(self.adapter, "price_single", None)
+        if pick is None or price is None or self.cfg.max_singles_per_scan <= 0:
+            return
+        for m in pick(markets, self.cfg.max_singles_per_scan):
+            try:
+                core = price(m, budget)
+            except Exception as e:
+                s.notes.append(f"single {m.venue}:{m.id}: {type(e).__name__}: {e}")
+                continue
+            s.singles += 1
+            fid = f"single:{m.venue}:{m.id}"
+            self.suggestions.venue_set(fid, [m], core)
+            self._add_finding(fid, [m], core, s.scan, m.title[:90])
+
+    def _add_finding(self, fid: str, legs: list[Market], core: CoreResult, scan: str, title: str) -> None:
+        t = arbtypes.classify("complement" if len(legs) == 1 else "at_most_one", [l.venue for l in legs], len(legs))
+        what = ("The venue lists these as mutually exclusive outcomes of one event, so the prices should add up to $1; "
+                "the core priced the set against the order books." if t == arbtypes.MULTI_OUTCOME else
+                "Yes and No of one market pay $1 between them; the core priced buying both against the order books.")
+        n = structural_narrative(core, what, arbtypes.TYPES[t]["risk"], [l.title for l in legs])
+        self.findings[fid] = Finding(fid, t, legs, core, n, legs[0].category or "other", title, scan)
 
     def check_lines(self, line_a: str, line_b: str, max_pairs: int = 6) -> tuple[list[Case], list[str]]:
         """Links or words for two events -> markets via the core's registry -> judged pairs.
         A link to a multi-outcome event gives several markets: each outcome on A is paired with its
         closest outcome on B (not just the first of each)."""
         sides, notes = [], []
-        for line in (line_a, line_b):
+        for i, line in enumerate((line_a, line_b)):
+            self._say(f"Reading event {'AB'[i]} from the venue…")
             ms = [m for m in self.adapter.resolve(line) if m.venue != "manifold"]
             notes += list(getattr(self.adapter, "last_notes", []))
             sides.append(ms)
@@ -208,6 +266,7 @@ class Pipeline:
         pairs = _match_outcomes(A, B)[:max_pairs]
         self.audit.append("resolve", {"inputs": [line_a, line_b], "matched": [[f"{a.venue}:{a.id}", f"{b.venue}:{b.id}"]
                                                                             for _, a, b in pairs]})
+        self._say(f"Asking Gemini about {len(pairs)} matched pair(s) and comparing their rules…")
         judged = self.judge.judge_many([(a, b) for _, a, b in pairs])
         cases = []
         for jp, (sim, a, b) in zip(judged, pairs):
@@ -221,6 +280,7 @@ class Pipeline:
 
     def check_pair(self, a: Market, b: Market) -> Case:
         """User-entered pair: always shown for review, even if the judge says unrelated."""
+        self._say("Asking Gemini about this pair and comparing its rules…")
         r = self._rule(a, b)
         self.suggestions.candidate(pair_id(a, b), a, b, "user", 0.0, "user")
         case = self._register(self.judge.judge_pair(a, b), similarity=0.0, force_review=True, how="user")
@@ -293,12 +353,14 @@ class Pipeline:
         case = self.cases[case_id]
         if case.state != "confirmed" or case.relation is None:
             raise TransitionError("Only a human-confirmed relation can be priced.")
+        self._say("Core: reading live order books for each leg (slowest step)…")
         try:
             core = self.adapter.price(case.relation, budget)
         except Exception as e:
             case.error = f"{type(e).__name__}: {e}"
             self._move(case, "error", error=case.error)
             return None
+        self._say("Core: books walked, fees and guard checks done. Writing the explanation…")
         # Rule differences may only make a trade less likely (the core already blocks on high flags).
         if case.rules and case.rules.diff.overall == "incompatible":
             core = tighten(core, "blocked", "frame_rules_incompatible")
@@ -358,6 +420,24 @@ class Pipeline:
             except Exception as e:
                 out.append((rel, None, f"{type(e).__name__}: {e}"))
         return out
+
+
+_HOW_RANK = {"cross_venue": 0, "within_event": 1, "cross_event": 2}
+
+
+def balanced(allowed: list, n: int) -> list:
+    """Pick up to n candidate tuples (a, b, sim, how, pid), taking turns across categories so no single
+    category fills the whole judging budget. Within a category: cross-venue first, then within-event,
+    then most similar."""
+    groups: dict[str, list] = {}
+    for t in sorted(allowed, key=lambda t: (_HOW_RANK.get(t[3], 3), -t[2])):
+        groups.setdefault(t[0].category or "other", []).append(t)
+    out: list = []
+    while len(out) < n and any(groups.values()):
+        for cat in sorted(groups, key=lambda c: -len(groups[c])):   # biggest queue first within each round
+            if groups[cat] and len(out) < n:
+                out.append(groups[cat].pop(0))
+    return out
 
 
 _STOP = {"will", "the", "a", "an", "of", "in", "on", "by", "after", "before", "be", "there", "to", "at", "for", "is"}

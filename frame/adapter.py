@@ -168,6 +168,36 @@ class ArbcheckAdapter:
         case = self.pipeline.evaluate_case(cms, rel, g, self.now(), log=log, role="related", note="venue set")
         return self._from_case(case)
 
+    def single_candidates(self, markets: list[Market], n: int) -> list[Market]:
+        """Markets to test for 'Yes + No under $1'. Stubs carry no prices, so this needs real books (two requests
+        each): take the first market of the busiest events, spread evenly across categories."""
+        by_cat: dict[str, list[Market]] = {}
+        seen_events: set[tuple[str, str]] = set()
+        for m in markets:
+            key = (m.venue, m.event_id or m.id)
+            if key in seen_events:
+                continue
+            seen_events.add(key)
+            by_cat.setdefault(m.category or "other", []).append(m)
+        out: list[Market] = []
+        while len(out) < n and any(by_cat.values()):
+            for cat in sorted(by_cat):
+                if by_cat[cat] and len(out) < n:
+                    out.append(by_cat[cat].pop(0))
+        return out
+
+    def price_single(self, m: Market, budget: float) -> CoreResult:
+        """Yes + No of ONE market, priced by the core's structural 'complement' relation."""
+        cm = self._to_core(m)
+        rel = self.relations.structural_relation(
+            "complement", "Yes and No of the same market: exactly one of them pays $1.", "metadata", 0.95,
+            "single-market")
+        g = self.guard_mod.Guard(self.guard_mod.Limits(max_notional=budget, max_total_notional=max(budget, 1000.0)))
+        kalshi_live = not self.demo and cm.venue == "Kalshi"
+        log = None if kalshi_live else self.guard_mod.DecisionLog(str(self.log_path))
+        case = self.pipeline.evaluate_case([cm], rel, g, self.now(), log=log, role="related", note="single market")
+        return self._from_case(case)
+
     def _to_core(self, m: Market):
         """The core Market for a frame leg: the registered one, else built from a manual entry."""
         cm = self._core.get(self._key(m.venue, m.id))
@@ -345,7 +375,7 @@ class ArbcheckAdapter:
         arb, d = case.arb, case.decision
         legs = [f"{lab} {side}" for lab, side in (arb.legs or ())]
         return CoreResult(
-            verdict=VERDICT[d.status], status=d.status, headline=d.headline, kind=arb.kind, legs=legs,
+            verdict=VERDICT[d.status], family=case.family, status=d.status, headline=d.headline, kind=arb.kind, legs=legs,
             floor=arb.floor, naive_edge=arb.naive_edge, top_edge=arb.top_edge, avg_edge=arb.avg_edge,
             shares=arb.shares, cost=arb.cost, fee_cost=arb.fee_cost, net_profit=arb.net_profit,
             ret=arb.ret, ann_ret=arb.ann_ret, days=arb.days,

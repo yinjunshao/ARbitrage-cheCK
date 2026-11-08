@@ -64,6 +64,23 @@ def template(core: CoreResult, rel: Relation, rules: VerifiedRuleDiff | None) ->
     )
 
 
+def structural_narrative(core: CoreResult, what: str, risk: str, titles: list[str]) -> NarratedResult:
+    """Findings from structure alone (venue-declared sets, Yes + No of one market) have no LLM judgement to
+    explain, so the explanation is a template built from the core's own words and numbers: no LLM call."""
+    cents = lambda x: f"{x * 100:.1f}¢"
+    risks = [f"Core flag: {f}" for f in core.flags]
+    risks += [f"Guard check {g.status}: {g.name}: {g.detail}" for g in core.checks if g.status in ("fail", "warn")]
+    n = Narrative(
+        headline=f"Core verdict: {core.verdict.replace('_', ' ')}. {core.headline} Price-only gap "
+                 f"{cents(core.naive_edge)}, after costs {cents(core.avg_edge)} per share.",
+        why_gap=what,
+        what_could_go_wrong=[risk, *risks] if risk else (risks or ["No flags raised by the core."]),
+        human_checks=["Read the rules of every outcome for a void or 'other' case.",
+                      "Confirm order books are fresh before acting."],
+        recommendation=_MAX_REC[core.verdict])
+    return NarratedResult(narrative=n, grounded=not check_numbers(_text(n), core, *titles), source="template")
+
+
 def narrate(llm: LLMClient, model: str, core: CoreResult, rel: Relation,
             rules: VerifiedRuleDiff | None = None) -> NarratedResult:
     quotes = [q for d in (rules.diff.differences if rules else []) for q in (d.quote_a, d.quote_b) if q

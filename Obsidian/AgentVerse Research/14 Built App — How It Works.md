@@ -65,6 +65,18 @@ Below it, one collapsed section — **"Detailed report: statistics, checks and w
 4. payoff in every still-possible world;
 5. how the explanation was produced and how Gemini judged the pair.
 
+## Arbitrage types (named as the core names them)
+| Type | What | How it is found |
+|---|---|---|
+| **Cross-platform** | same or linked event on two venues | candidates → Gemini → human confirms → core |
+| **Logical link** | one outcome forces another (nested deadlines, thresholds) | the same |
+| **Multi-outcome set** | outcomes of one event that can't all win | venue-declared sets, priced by the core, **no LLM** |
+| **Same market (Yes + No)** | Yes + No of one market under $1 | ~30 markets per scan (needs real books), priced by the core, **no LLM** |
+
+The last two need no confirmation, so they show up at once as "priced from structure alone" with a template explanation. The **Opportunities page** filters by type / category / confidence / source and sorts suggestions (confidence, similarity, closing soonest, category, type) and priced results (verdict, edge after costs, price-only gap, category).
+**Balanced judging:** the Gemini budget (30 a scan) is shared across categories, cross-venue pairs first, so crypto (the biggest category) can't take it all. First live check: results spread over economics, sports, politics, culture, science and weather.
+**Loading:** slow steps (pricing with the core, checking a pair) open a "working" dialog with the live step and elapsed seconds. Finding: the core itself is quick; most of the wait was Gemini writing the explanation.
+
 ## How candidates are found
 - **Within one event**: only pairs the core's own heuristic links as *implies* (nested deadlines, thresholds). Outcomes of one event are not sent in pairs.
 - **Venue-declared exclusive sets** (Polymarket `negRisk`, Kalshi `mutually_exclusive`) are priced directly by the core as "at most one", **no LLM needed**.

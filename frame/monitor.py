@@ -32,7 +32,8 @@ def cycle(p, budget: float) -> None:
           f"{s.judged} judged | {s.surfaced} for review | {s.deferred} deferred ({time.time() - t0:.0f}s)", flush=True)
     for n in s.notes:
         print(f"   note: {n}", flush=True)
-    print(f"   {s.sets} venue-declared exclusive sets priced by the core (no LLM)", flush=True)
+    print(f"   {s.sets} venue-declared exclusive sets and {s.singles} single markets (Yes + No) priced by the core (no LLM)",
+          flush=True)
     for h in s.set_hits:
         print(f"   SET {h}", flush=True)
     for c in p.review_queue():

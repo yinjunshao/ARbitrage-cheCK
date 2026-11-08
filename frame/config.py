@@ -39,6 +39,7 @@ class Config:
     min_similarity: float = float(os.getenv("FRAME_MIN_SIMILARITY", "0.45"))
     max_judge_per_scan: int = int(os.getenv("FRAME_MAX_JUDGE_PER_SCAN", "30"))  # LLM budget; rest retried next scan
     max_sets_per_scan: int = int(os.getenv("FRAME_MAX_SETS_PER_SCAN", "8"))     # venue exclusive sets priced (no LLM)
+    max_singles_per_scan: int = int(os.getenv("FRAME_MAX_SINGLES_PER_SCAN", "30"))  # "Yes + No under $1" checks (no LLM)
     judge_concurrency: int = int(os.getenv("FRAME_JUDGE_CONCURRENCY", "4"))
     fewshot_k: int = int(os.getenv("FRAME_FEWSHOT_K", "5"))
     min_surface_confidence: str = "medium"  # surface only medium/high to review

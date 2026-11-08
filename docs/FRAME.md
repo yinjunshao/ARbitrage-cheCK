@@ -39,6 +39,24 @@ Categories come from the venues themselves (Polymarket event tags, Kalshi event 
 vocabulary in `frame/categories.py`. Rules apply to **suggestions**. A pair you type in yourself is still
 checked, but a rule failure is shown as a warning instead of a refusal.
 
+## Arbitrage types (`frame/arbtypes.py`)
+
+Named as the numeric core names them, and labelled the same before and after pricing:
+
+| Type | What | How it is found |
+|---|---|---|
+| **Cross-platform** | the same or a linked event on two venues | candidate pairs + Gemini judge + your confirmation |
+| **Logical link** | one outcome forces another on one venue (nested deadlines, thresholds) | the same |
+| **Multi-outcome set** | outcomes of one event that can't all win | venue-declared sets (Polymarket `negRisk`, Kalshi `mutually_exclusive`); priced by the core, **no LLM** |
+| **Same market (Yes + No)** | Yes and No of one market cost under $1 | a few markets per scan (`FRAME_MAX_SINGLES_PER_SCAN`, default 30), spread over categories; priced by the core, **no LLM** |
+
+The last two need nothing confirmed, so they appear straight away as "priced from structure alone" with a template
+explanation. The Opportunities page filters by type, category, confidence and source, and sorts suggestions (confidence,
+similarity, closing soonest, category, type) and priced results (verdict, edge after costs, price-only gap, category).
+
+**Balanced judging:** the per-scan Gemini budget is shared out evenly across categories (cross-venue pairs first inside
+each), so a category with many markets, like crypto, cannot use all of it.
+
 ## Suggestion log (`frame/suggestions.py`)
 
 Every pair the frame considers is logged with a reason: `candidate`, `rule_refused` (rule + reason),
