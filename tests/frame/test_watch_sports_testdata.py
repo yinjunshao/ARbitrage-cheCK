@@ -153,6 +153,41 @@ def test_downward_threshold_ladder_is_blocked_not_reported_as_arbitrage():
     assert r.verdict == "blocked" and "threshold_direction_unverified" in r.flags
 
 
+def test_nested_windows_across_events_link_the_narrow_to_the_wide():
+    from frame.windows import window_links
+    W = lambda i, t, close, ev: Market(venue="polymarket", id=i, title=t, close_time_utc=close, event_id=ev, category="crypto")
+    ms = [W("w", "Will Bitcoin reach $90,000 November 2-8?", "2026-11-09T05:00:00Z", "week"),
+          W("m", "Will Bitcoin reach $90,000 in November?", "2026-12-01T05:00:00Z", "month"),
+          W("y", "Will Bitcoin reach $90,000 by December 31, 2026?", "2027-01-01T05:00:00Z", "year"),
+          W("d", "Will Bitcoin dip to $90,000 in November?", "2026-12-01T05:00:00Z", "month"),      # other direction
+          W("o", "Will Bitcoin reach $95,000 in November?", "2026-12-01T05:00:00Z", "month"),      # other threshold
+          W("late", "Will Bitcoin reach $90,000 by December 31, 2026?", "2027-01-01T05:00:00Z", "late-year")]
+    links = {(a.id, b.id) for a, b, _ in window_links(ms, {"year": "2026-08-01T00:00:00Z", "late-year": "2026-11-05T00:00:00Z"})}
+    # 'late' (a 'by Dec 31' created Nov 5) sits inside the Aug-created one, but NOT around the Nov 2-8 week or
+    # November: a hit on Nov 3 would not count for it, so no link from the week or the month to it.
+    assert links == {("w", "m"), ("w", "y"), ("m", "y"), ("late", "y")}
+
+
+def test_recording_drops_stale_and_non_simultaneous_books(tmp_path):
+    import gzip
+    root = tmp_path / "rec"
+    (root / "events").mkdir(parents=True)
+    end = (datetime.now(timezone.utc) + timedelta(days=5)).timestamp()
+    (root / "markets.json").write_text(json.dumps([
+        {"market_id": "m1", "question": "Q1?", "tokens": [["y1", "Yes"], ["n1", "No"]], "end_ts": end, "event_slug": "e"},
+        {"market_id": "m2", "question": "Q2?", "tokens": [["y2", "Yes"], ["n2", "No"]], "end_ts": end, "event_slug": "e"}]))
+    t0 = time.time()
+    rows = [{"type": "book", "ts": t0 - 1000, "token_id": "y2", "bids": [[0.4, 10]], "asks": [[0.5, 10]]},   # stale
+            {"type": "book", "ts": t0, "token_id": "y1", "bids": [[0.40, 10]], "asks": [[0.42, 10]]},
+            {"type": "book", "ts": t0 + 30, "token_id": "n1", "bids": [[0.50, 10]], "asks": [[0.52, 10]]}]  # 30 s later
+    with gzip.open(root / "books-1.jsonl.gz", "wt", encoding="utf-8") as f:
+        f.write("\n".join(json.dumps(r) for r in rows) + "\n")
+    ts, books = list(testdata._polysim_rounds(root))[-1]
+    doc = testdata.polysim_doc(root, books, ts)
+    assert [m["id"] for m in doc["markets"]] == ["m1"]                 # m2's only book is 1,000 s old: dropped
+    assert "no_asks" not in doc["markets"][0]                          # No book 30 s apart: mirror used instead
+
+
 def test_bad_rows_are_rejected_not_guessed():
     text = "id,q,c,side,p,s\nm1,Q,2027-01-01T00:00:00Z,bid,150,10\nm2,Q,2027-01-01T00:00:00Z,ask,40,10\n" \
            "m3,Q,,ask,40,10\nm4,Q,2027-01-01T00:00:00Z,bid,60,10\nm4,Q,2027-01-01T00:00:00Z,ask,50,10\n"

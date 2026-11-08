@@ -30,6 +30,12 @@ events, 2026-11-07 19:12 to 2026-11-08 11:27 UTC, 46 rounds) through the core wi
   The frame now blocks such ladders (`threshold_direction_unverified`), and the fix is requested from the core
   owner (`docs/CORE_REQUESTS.md` #6). This is a live example of exactly what the product exists to catch.
 
+**Full replay (later the same day):** `python -m frame.testdata study recordings/<folder>`.
+- **What it covered:** 178 snapshots (about 3 h of usable data). It added nested windows across events, derived by code: "reach $90k Nov 2–8" ⇒ "in November" ⇒ "by Dec 31". It used real Yes and No books, and dropped stale or non-simultaneous books.
+- **Result: 0 executable moments.** That covers 77,493 ladder checks, 3,672 cross-event window checks and 24,899 Yes + No checks.
+- A price-only scanner would have flagged about 7,200 moments.
+- An earlier 106 "Yes + No under $1" moments were all books recorded ≥ 5 s apart, so recording artefacts.
+
 **What the app does now:** ladders are not sent to Gemini by default. The core screens them with its own
 deterministic extractor (no LLM); only an inversion goes to Gemini and a human. Every ladder joins the watch list
 and is re-screened more often as the earlier date approaches, which is when an inversion is most likely.

@@ -27,6 +27,15 @@ Kalshi's Developer Agreement limits API use to **a member's own trading** and ba
 - nothing from Kalshi is written to disk (confirmed-pair files strip prices; the suggestion log redacts them; the core decision log is skipped when a live Kalshi leg is present);
 - do not post screenshots of Kalshi prices.
 
+## Update 8 Nov
+- **Sports:** Polymarket's own Premier League game events have kickoff, game id and live score, and are the primary live source. Optional extra feeds:
+  - football-data.org: official, but the free tier is delayed;
+  - ESPN's scoreboard: live, but unofficial, so personal use only.
+  - TheSportsDB's livescores are paid.
+- **Polymarket sandbox:** none officially. Polymarket US has one for partners only, Kalshi has `demo-api.kalshi.com`, and the GitHub "sandboxes" are community paper traders. For judging, use live data read-only, paper execution via polysim, and a recording as backup.
+- **Our own recording** (`recordings/polysim-20261108-1127Z`, 7–8 Nov) is now usable as test data and was replayed in full: [[19 Recording Study — 7–8 Nov]]. It is private and must not be redistributed.
+- Sources and details: `docs/RESEARCH_NOTES.md`.
+
 ## Record forward (for evaluation on unseen data)
 - **polysim `record` / `fetch`**: polls Polymarket books to JSONL and pulls price history and resolutions. Polymarket keeps 1-minute history only about 7 days, so record forward.
 - **Polymarket CLOB WebSocket**: live book stream (check current terms; one vendor claims a paid tier).

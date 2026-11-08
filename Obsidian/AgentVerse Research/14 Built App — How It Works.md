@@ -65,6 +65,19 @@ Below it, one collapsed section — **"Detailed report: statistics, checks and w
 4. payoff in every still-possible world;
 5. how the explanation was produced and how Gemini judged the pair.
 
+## Update 8 Nov: what changed since this note was written
+Full detail in [[18 Smart Loop, Sports & Test Data]] and [[19 Recording Study — 7–8 Nov]].
+- **Pipeline now has three lanes:**
+  1. Code-derived logical pairs (date and threshold ladders, exact score ⇒ result) are **screened by the core with no LLM**. Only a real gap goes to Gemini and a human.
+  2. Venue sets and Yes + No are priced by the core directly.
+  3. Everything else goes through Gemini and a human, as before.
+- **Watch list and smart loop:** anything checked with no gap yet is re-checked by the core as its deadline nears, every minute in the last 2 h or while a game is in play.
+- **Premier League games** are pulled separately; live state comes from Polymarket's own game data.
+- **Smart sort:** a priority score with reasons shown on hover. Candidate cards show only the rule sentences that differ.
+- **Test-data mode:** Gemini maps the file layout; code copies the numbers; the core runs with no Gemini. A whole polysim recording can be replayed.
+- **A guard for a false arbitrage in the core:** downward-threshold ladders ("(LOW)") are blocked (CORE_REQUESTS #6).
+- New code: `frame/watch.py`, `frame/sports.py`, `frame/priority.py`, `frame/testdata.py`.
+
 ## Arbitrage types (named as the core names them)
 | Type | What | How it is found |
 |---|---|---|

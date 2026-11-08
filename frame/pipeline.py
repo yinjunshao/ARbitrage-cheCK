@@ -216,7 +216,9 @@ class Pipeline:
             ladders = [(*t, None) for t in allowed if t[3] == "within_event" and t[4] not in self.watch.items]
             allowed = [t for t in allowed if t[3] != "within_event"]
             links = []
-            for a, b, why in sports.game_links(markets):
+            from .windows import window_links
+            derived = sports.game_links(markets) + window_links(markets, getattr(self.adapter, "event_starts", {}))
+            for a, b, why in derived:
                 pid = pair_id(a, b)
                 if pid not in self.cases and pid not in self.watch.items and self._rule(a, b, nested=True).ok:
                     links.append((a, b, 1.0, "game_link", pair_id(a, b), why))

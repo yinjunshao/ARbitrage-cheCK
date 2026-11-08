@@ -7,15 +7,33 @@ created: 2026-11-07
 Related: [[14 Built App — How It Works]] · [[15 Suggestion Rules & Log]] · [[16 Live Data Sources]].
 
 ## Running it (Windows, from the repo root)
+**Double-click `run.bat`** for a numbered menu; it pauses at the end so the window stays open.
+
+| # | Mode | Gemini? | Mode name for `run.bat <mode>` |
+|---|---|---|---|
+| 1 | App on live markets (tests first), http://127.0.0.1:8080 | judging and explanations | `app` |
+| 2 | App, Kalshi on for this run (members only) | yes | `kalshi` |
+| 3 | Monitor: the smart watch loop, no browser | for new pairs | `monitor` |
+| 4 | Monitor with Kalshi | yes | `monitor-kalshi` |
+| 5 | Test data: convert files in `data/testdata/raw` | maps the layout only | `testdata-convert` |
+| 6 | Test data: the core on the converted data | **no** | `testdata-core` |
+| 7 | Test data: the app on the converted data | judging and explanations | `testdata-app` |
+| 8 | Every test | no | `test` |
+| 9 | The core's own app, http://127.0.0.1:8765 | no | `core` |
+
+`run.bat` prints whether Kalshi is on or off. Needs a Google AI Studio key in `.env`.
+
+### Test-data and recording commands (no Gemini unless noted)
 | Command | What it does |
 |---|---|
-| `run.bat` | sets up the `.venv`, runs the tests, starts the app on live data at **http://127.0.0.1:8080** |
-| `run.bat monitor` | scans live markets every 5 minutes, logs every suggestion, re-prices confirmed pairs, prints progress |
-| `run.bat kalshi` / `run.bat monitor-kalshi` | the same with Kalshi on for that run, whatever `.env` says |
-| `run.bat test` | all tests (core, polysim, frame) then stops |
-| `run.bat core` | the core's own app with no LLM frame (http://127.0.0.1:8765) |
+| `python -m frame.testdata sample` | writes an invented example file into `data/testdata/raw` |
+| `python -m frame.testdata convert` | converts files in `data/testdata/raw`; Gemini maps unknown layouts once, and the mapping is cached |
+| `python -m frame.testdata core` | the core on the converted data → `data/testdata/report.md` |
+| `python -m frame.testdata polysim recordings/<folder> [--at ISO]` | one moment of a polysim recording as test data (then menu 6 or 7) |
+| `python -m frame.testdata study recordings/<folder>` | replays the **whole** recording through the core → `data/testdata/recording_study.md` (see [[19 Recording Study — 7–8 Nov]]) |
+| `python -m frame.testdata ladder-study recordings/<folder>` | the earlier, ladder-only version |
 
-`run.bat` prints whether Kalshi is on or off at start. Needs a Google AI Studio key in `.env`.
+Recordings live in `recordings/`, which is gitignored. Polymarket data may not be redistributed, so never commit or post them.
 
 ## `.env` settings (copy `.env.example`; never commit `.env`)
 | Key | Default | Meaning |
@@ -32,6 +50,14 @@ Related: [[14 Built App — How It Works]] · [[15 Suggestion Rules & Log]] · [
 | `FRAME_MIN_SIMILARITY` | `0.45` | candidate cut-off |
 | `FRAME_MONITOR_EVERY_S` | `300` | monitor cycle |
 | `FRAME_EMBEDDER` | bge if installed | `hashing` skips the model download |
+| `FRAME_MAX_SCREENS_PER_SCAN` | `40` | ladders and in-game links screened by the core per scan (no LLM) |
+| `FRAME_WATCH_TICK_S` | `30` | how often the watch loop looks for due re-checks |
+| `FRAME_APP_WATCH` | `1` | `0` turns the app's own background watch off (when the monitor runs) |
+| `FRAME_DATE_WINDOW_DAYS` | = R6 (14) | cross-event candidate window |
+| `FRAME_SPORTS_LEAGUES` | `premier-league` | Polymarket tag slugs pulled as games |
+| `FRAME_SPORTS_DAYS` | `3` | how far ahead games are pulled |
+| `FOOTBALL_DATA_API_KEY` | — | optional football-data.org feed (free tier = delayed) |
+| `FRAME_SPORTS_ESPN` | `0` | optional ESPN scoreboard (unofficial, personal use) |
 
 ## The check-a-pair flow (user-driven)
 Paste two links (Polymarket, Kalshi if on, Manifold) or describe two events in words. A link to a multi-outcome event checks **each outcome against its closest match** on the other side. The app asks Gemini, shows the pair for review, and after confirmation the core prices it on fresh books. Manual entry needs a Yes ask, a depth and a close time.
@@ -48,16 +74,34 @@ Paste two links (Polymarket, Kalshi if on, Manifold) or describe two events in w
 | Wrong outcome matches (Fed) | naive matching | token + synonym + one-to-one matching, with a regression test |
 | Narratives with raw floats | Gemini copied unrounded numbers | numbers rounded before narrating |
 | Old app after a code change | an app started earlier keeps old code | restart after pulling changes |
+| Games vanished at kickoff | Polymarket sets a game's `endDate` = kickoff | game open until kickoff + 2 h 15 min |
+| Same 40 ladders screened every scan | screening budget spent on already-watched pairs | watched pairs left to the watch loop |
+| R6 depended on argument order | whole-day rounding | exact time |
+| Core reported 80¢ "locked in" on WTI "(LOW)" ladders | the core's extractor orders downward thresholds backwards | frame blocks them; CORE_REQUESTS #6 |
+| Garbled "…" in `pipeline.py` | a PowerShell rewrite read UTF-8 as ANSI | repaired; edit files with Python or the editor, not `Get-Content`/`Set-Content` |
+| Recording replay merged snapshots (46 instead of ~170) | rounds split on a 20 s gap that never happens | a round ends when a token comes round again |
 
 ## Git and the vault
 - Branch **`integrated/llm-and-core`** holds the LLM frame, the core and polysim together. `frame/llm-layer` is the frame alone. Never push to `main`.
-- Commits so far on the integrated branch: live data by default and rules (998f661) → Gemini timeout, safe log, progress, Kalshi via `.env` (a6b6ff0) → time rules and the new result page (807d19f).
-- The Obsidian notes, PDFs and screenshots are kept out of the code commits so far (they sit staged, not committed). Commit them separately when ready.
+- Commits on the integrated branch:
+
+| Commit | What |
+|---|---|
+| 998f661 | live data by default, rules |
+| a6b6ff0 | Gemini timeout, safe log, progress, Kalshi via `.env` |
+| 807d19f | time rules and the new result page |
+| ca1bf0d | vault notes 14–17 |
+| 4e1fbba | arbitrage types, balanced judging, sorting, loading dialog |
+| 32d181a | smart watch loop, Premier League, test-data mode, rules v3, the guard for the core's false arbitrage |
+
+- Code commits include the vault notes written for them. Your own staged files (PDFs, screenshots, other notes, `00 Home`) stay staged and uncommitted until you commit them.
 
 ## Tests
-131 frame + polysim tests (including a live Gemini test that skips without a key) and 152 core tests. Rule tests use dates relative to today, so they don't rot.
+150 frame + polysim tests (including a live Gemini test that skips without a key) and 152 core tests. Rule tests use dates relative to today, so they don't rot.
 
 ## Open questions
-- Is anyone on the team a **Kalshi member**? If yes, set `FRAME_KALSHI_MEMBER=1` on that person's machine.
+- **Kalshi:** `.env` now has it ON. Make sure that machine belongs to a Kalshi member.
 - Are 45 days (R5) and 14 days (R6) the right limits? Both are one-line changes.
 - Confirm the Gemini model id and verify venue fee schedules and resolution dates before any number goes on a slide.
+- Should the core's direction bug (CORE_REQUESTS #6) be fixed by Debby, or on a branch for her review?
+- R2 keeps a Bitcoin-tagged politics event away from a Kalshi politics market: intended?

@@ -30,6 +30,8 @@ Related: [[14 Built App — How It Works]] · [[15 Suggestion Rules & Log]] · [
   - ⚠️ **The core itself reported a false arbitrage:** on WTI "hit (LOW) $X" it ordered downward thresholds as if upward, giving "≈80¢ locked in" 1,636 times.
   - The frame now blocks these, and the fix is requested from Debby (`docs/CORE_REQUESTS.md` #6). This makes a strong demo story: the checker caught a false arbitrage in its own engine.
 
+> **Follow-up:** the full replay of the recording, with stale books removed and nested-window links across events added, is in [[19 Recording Study — 7–8 Nov]]. It found **0 executable moments** in about 3 h of data.
+
 ## Sports (Premier League first)
 - **Why sports:** an NBA study on Polymarket (Cheng et al., arXiv:2605.00864) found 279 of 290 executable episodes **in-game**, mostly in the final minutes, with a median life of **16 s**.
 - **Honest limit:** our 60 s polling can find and explain such gaps, but not capture them; that needs WebSockets.

@@ -109,6 +109,7 @@ class ArbcheckAdapter:
         self.progress = lambda text: None   # the pipeline sets this to report listing progress
         self._sports: dict[str, dict] = {}       # "venue:id" -> kickoff, game id, league, market type
         self.live_games: dict[str, dict] = {}    # game id -> live state from Polymarket's own event data
+        self.event_starts: dict[str, str] = {}   # event slug -> start (creation) time
         self.sports_leagues = [s for s in os.getenv("FRAME_SPORTS_LEAGUES", "premier-league").split(",") if s.strip()]
         self.sports_days = int(os.getenv("FRAME_SPORTS_DAYS", "3"))
         if demo:
@@ -333,6 +334,8 @@ class ArbcheckAdapter:
         from arbcheck import polymarket
         tags = [t.get("slug") or t.get("label") for t in (ev.get("tags") or []) if isinstance(t, dict)]
         self._event_tags[ev.get("slug", "")] = tags
+        if ev.get("startDate"):           # dates "by <date>" windows for frame.windows
+            self.event_starts[ev.get("slug", "")] = ev["startDate"]
         self._note_sports(ev)
         return [self.to_frame(cm, tags) for cm in polymarket.stubs_from_event(ev)[: self.max_per_event]]
 

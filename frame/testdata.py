@@ -283,6 +283,9 @@ def load_universe(path: Path | dict = NORM / "markets.json"):
     out, sports_meta = [], {}
     for d in doc["markets"]:
         yes, no = demo_data.binary([tuple(l) for l in d["yes_bids"]], [tuple(l) for l in d["yes_asks"]])
+        if d.get("no_asks"):         # a recorded No book: use it as recorded (a mismatch with Yes is the point)
+            no = models.Book(asks=[models.Level(float(p), float(s)) for p, s in sorted(d["no_asks"])],
+                             bids=[models.Level(float(p), float(s)) for p, s in sorted(d.get("no_bids") or [], reverse=True)])
         venue = {"polymarket": "Polymarket", "kalshi": "Kalshi", "manifold": "Manifold"}.get(d["venue"], "Polymarket")
         fee = fees.KALSHI_FEE if venue == "Kalshi" else fees.polymarket_fee(d.get("category"))
         out.append(models.Market(str(d["id"]), d["title"], d.get("rules_text") or d["title"], when(d["close_time_utc"]),
@@ -353,6 +356,26 @@ def core_report(path: Path = NORM / "markets.json", budget: float = 300.0, say=p
 
 # ------------------------------------------------------------------ polysim recordings (a known format: no Gemini)
 
+# A recorded book older than this, relative to the snapshot, is not used: the recorder reads every token about
+# once a minute, so anything much older means a gap (the laptop slept) and pairing it with fresh books would
+# invent prices that never existed together.
+MAX_BOOK_AGE_S = 180
+# Yes and No of one market are recorded back to back (~0.2 s apart). If they are further apart than this, the No
+# book is not used (a mirror of Yes is used instead): 106 'Yes + No under $1' moments in the 7-8 Nov recording
+# were all pairs recorded 5 s or more apart, i.e. artefacts of non-simultaneous recording.
+MAX_YES_NO_GAP_S = 5
+
+
+def event_starts(folder: Path) -> dict[str, str]:
+    """Event slug -> start (creation) time, from the saved Gamma events: needed to date 'by <date>' windows."""
+    out = {}
+    for p in (_recording_root(folder) / "events").glob("*.json"):
+        ev = json.loads(p.read_text(encoding="utf-8"))
+        if ev.get("startDate") or ev.get("creationDate"):
+            out[ev.get("slug")] = ev.get("startDate") or ev.get("creationDate")
+    return out
+
+
 def _recording_root(folder: Path) -> Path:
     """The folder that holds markets.json (zips are often unpacked one level deeper)."""
     folder = Path(folder)
@@ -363,9 +386,12 @@ def _recording_root(folder: Path) -> Path:
 
 
 def _polysim_rounds(root: Path):
-    """Yield (ts, {token_id: (bids, asks)}) rounds: the recorder snapshots every token about once a minute."""
+    """Yield (ts, {token_id: (bids, asks)}) snapshots, one per recorder round. The recorder reads every token
+    once per round (~60 s), back to back, so a round ends when a token comes round again. Each snapshot holds the
+    latest book of every token seen so far (books inside one round are up to ~60 s apart)."""
     import gzip
     books: dict[str, tuple] = {}
+    in_round: set[str] = set()
     last_ts = None
     for p in sorted(root.glob("books-*.jsonl*")):
         opener = gzip.open if p.suffix == ".gz" else open
@@ -376,9 +402,11 @@ def _polysim_rounds(root: Path):
                 d = json.loads(line)
                 if d.get("type") != "book":
                     continue
-                if last_ts is not None and d["ts"] - last_ts > 20 and books:   # a new round starts
+                if d["token_id"] in in_round:                    # this token again: the previous round is complete
                     yield last_ts, dict(books)
-                books[d["token_id"]] = (d["bids"], d["asks"])
+                    in_round = set()
+                in_round.add(d["token_id"])
+                books[d["token_id"]] = (d["bids"], d["asks"], d["ts"])
                 last_ts = d["ts"]
     if books:
         yield last_ts, dict(books)
@@ -399,13 +427,18 @@ def polysim_doc(folder: Path, books: dict, ts: float) -> dict:
     out = []
     for m in meta:
         yes_tok = next((t for t, o in m["tokens"] if str(o).lower() == "yes"), None)
+        no_tok = next((t for t, o in m["tokens"] if str(o).lower() == "no"), None)
         if yes_tok not in books or m.get("end_ts", 0) <= ts:
             continue
-        bids, asks = books[yes_tok]
-        if not asks:
+        bids, asks, t_yes = books[yes_tok]
+        if not asks or ts - t_yes > MAX_BOOK_AGE_S:       # stale (e.g. the laptop slept): not a real moment
             continue
         ev = m.get("event_slug")
-        out.append({"venue": "polymarket", "id": m["market_id"], "title": m["question"],
+        extra = {}
+        if no_tok in books and books[no_tok][1] and abs(books[no_tok][2] - t_yes) <= MAX_YES_NO_GAP_S:
+            nb, na, _ = books[no_tok]                       # the REAL No book, recorded together with the Yes book
+            extra = {"no_bids": [[float(p), float(s)] for p, s in nb], "no_asks": [[float(p), float(s)] for p, s in na]}
+        out.append({**extra,"venue": "polymarket", "id": m["market_id"], "title": m["question"],
                     "rules_text": rules.get(m["market_id"]) or m["question"],
                     "close_time_utc": datetime.fromtimestamp(m["end_ts"], timezone.utc).isoformat(),
                     "category": canonical(tags.get(ev) or [m.get("category") or ""]) or "other",
@@ -473,6 +506,130 @@ def ladder_study(folder: Path, budget: float = 300.0, say=print, report: Path = 
     return {"rounds": rounds, "pairs": len(best), "stats": dict(stats), "top": top}
 
 
+def recording_study(folder: Path, budget: float = 300.0, say=print, report: Path = TD / "recording_study.md") -> dict:
+    """Replay a whole polysim recording through the core, no LLM, and report every kind of arbitrage it can price:
+      * logical links: every pair the core's own extractor links (date and threshold ladders), WITHIN and ACROSS
+        events (e.g. "BTC hits $X during Nov 2-8" implies "... in November" implies "... before 2027"). The links are
+        found once on the first snapshot, then priced at every snapshot;
+      * same market: Yes + No bought together, with the REAL recorded No book;
+      * resolutions: the last recorded prices of each market that resolved during the recording.
+    Downward thresholds ("(LOW)", "dip to") are blocked by the frame's guard (CORE_REQUESTS #6) and counted apart."""
+    import collections
+    root = _recording_root(folder)
+    meta = {m["market_id"]: m for m in json.loads((root / "markets.json").read_text(encoding="utf-8"))}
+    links: list[tuple[str, str, bool]] | None = None
+    wlinks: list[tuple[str, str, str]] = []
+    stats: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    best: dict[str, tuple] = {}
+    timeline, hits = [], []
+    last_book: dict[str, tuple[float, dict]] = {}
+    when = lambda ts: datetime.fromtimestamp(ts, timezone.utc).strftime("%m-%d %H:%M")
+
+    def note(kind, key, core, ts):
+        st = stats[kind]
+        st["checks"] += 1
+        st[core.verdict] += 1
+        if core.naive_edge > 0:
+            st["gap before costs"] += 1
+        if core.verdict in ("worth_a_look", "look_closely"):
+            hits.append((when(ts), kind, key, core.verdict, core.avg_edge, core.approved_profit, core.headline))
+        if key not in best or core.avg_edge > best[key][1]:
+            best[key] = (kind, core.avg_edge, core.naive_edge, core.verdict, when(ts))
+
+    n = 0
+    for ts, books in _polysim_rounds(root):
+        n += 1
+        doc = polysim_doc(root, books, ts)
+        for d in doc["markets"]:
+            last_book[d["id"]] = (ts, d)
+        ad = make_adapter(doc)
+        ms = {m.id: m for m in ad.list_open_markets(["polymarket"])}
+        if links is None:                                # find the logical structure once
+            from frame.windows import window_links
+            ids = list(ms)
+            links = [(x, y, ms[x].event_id == ms[y].event_id) for i, x in enumerate(ids) for y in ids[i + 1:]
+                     if ad.cheap_link(ms[x], ms[y])]
+            wlinks = [(a.id, b.id, why) for a, b, why in window_links(list(ms.values()), event_starts(root))]
+            say(f"{len(ms)} markets; the core's extractor links {len(links)} pairs "
+                f"({sum(1 for *_, same in links if same)} within an event, {sum(1 for *_, same in links if not same)} "
+                f"across events); nested windows across events add {len(wlinks)} links (derived by code)")
+        round_hits = 0
+        for x, y, same in links:
+            if x in ms and y in ms:
+                core = ad.screen_pair(ms[x], ms[y], budget)
+                kind = ("ladder within event" if same else "link across events") + \
+                       (" (downward, guarded)" if "threshold_direction_unverified" in core.flags else "")
+                note(kind, f"{ms[x].title[:55]}  /  {ms[y].title[:55]}", core, ts)
+                round_hits += core.verdict in ("worth_a_look", "look_closely")
+        for x, y, why in wlinks:
+            if x in ms and y in ms:
+                core = ad.screen_pair(ms[x], ms[y], budget, why=why)
+                note("nested window across events", f"{ms[x].title[:55]}  ⇒  {ms[y].title[:55]}", core, ts)
+                round_hits += core.verdict in ("worth_a_look", "look_closely")
+        for m in ms.values():
+            core = ad.price_single(m, budget)
+            note("same market (Yes + No)", m.title[:90], core, ts)
+            round_hits += core.verdict in ("worth_a_look", "look_closely")
+        timeline.append((when(ts), len(ms), round_hits))
+        if n % 20 == 0:
+            say(f"  … {n} snapshots replayed ({when(ts)} UTC)")
+
+    # resolutions: the last recorded Yes book before each market resolved
+    res_rows = []
+    rp = root / "resolutions.jsonl"
+    for line in (rp.read_text(encoding="utf-8").splitlines() if rp.exists() else []):
+        if not line.strip():
+            continue
+        r = json.loads(line)
+        m = meta.get(r["market_id"], {})
+        yes_tok = next((t for t, o in m.get("tokens", []) if str(o).lower() == "yes"), None)
+        won_yes = r["payouts"].get(yes_tok) == 1.0
+        lb = last_book.get(r["market_id"])
+        ask = lb[1]["yes_asks"][0][0] if lb and lb[1]["yes_asks"] else None
+        bid = lb[1]["yes_bids"][0][0] if lb and lb[1]["yes_bids"] else None
+        res_rows.append((when(r["ts"]), m.get("question", r["market_id"])[:70], "Yes" if won_yes else "No",
+                         f"{bid}/{ask}" if lb else "not recorded", when(lb[0]) if lb else ""))
+
+    real = [h for h in hits if "guarded" not in h[1]]
+    lines = ["# Recording study (core only, no LLM)", "",
+             f"Recording `{root.name}` · {n} snapshots from {timeline[0][0]} to {timeline[-1][0]} UTC · "
+             f"{len(meta)} markets · {len(links or [])} pairs linked by the core's extractor · {len(wlinks)} nested-window "
+             f"links across events (code-derived) · stale books dropped (> {MAX_BOOK_AGE_S} s old; Yes/No recorded > "
+             f"{MAX_YES_NO_GAP_S} s apart)", "",
+             f"**Executable arbitrage moments (core says worth a look / look closely): {len(real)}**", "",
+             "| type | checks | worth a look | look closely | blocked | nothing to do | gap before costs |",
+             "|---|---|---|---|---|---|---|"]
+    for k, st in sorted(stats.items()):
+        lines.append(f"| {k} | {st['checks']} | {st['worth_a_look']} | {st['look_closely']} | {st['blocked']} | "
+                     f"{st['nothing_to_do']} | {st['gap before costs']} |")
+    lines += ["", "## Every executable moment" if real else "## No executable moment", ""]
+    if real:
+        lines += ["| when (UTC) | type | what | verdict | after costs | approved profit |", "|---|---|---|---|---|---|"]
+        lines += [f"| {h[0]} | {h[1]} | {h[2]} | {h[3].replace('_', ' ')} | {h[4] * 100:.1f}¢ | ${h[5]:.2f} |" for h in real[:100]]
+    lines += ["", "## Closest each structure came (top 20, guarded downward ladders excluded)", "",
+              "| type | what | after costs | before costs | verdict | when (UTC) |", "|---|---|---|---|---|---|"]
+    top = sorted(((k, v) for k, v in best.items() if "guarded" not in v[0]), key=lambda kv: -kv[1][1])[:20]
+    lines += [f"| {v[0]} | {k} | {v[1] * 100:.1f}¢ | {v[2] * 100:.1f}¢ | {v[3].replace('_', ' ')} | {v[4]} |" for k, v in top]
+    lines += ["", "## Markets that resolved during the recording", "",
+              "| resolved (UTC) | market | outcome | last Yes bid/ask recorded | at |", "|---|---|---|---|---|"]
+    lines += [f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} |" for r in res_rows]
+    lines += ["", "## Snapshots per hour", "", "| hour (UTC) | snapshots | markets open | executable moments |", "|---|---|---|---|"]
+    per_hour = collections.OrderedDict()
+    for t, nm, h in timeline:
+        k = t[:8] + "00"
+        c = per_hour.setdefault(k, [0, 0, 0])
+        c[0] += 1
+        c[1] = nm
+        c[2] += h
+    lines += [f"| {k} | {v[0]} | {v[1]} | {v[2]} |" for k, v in per_hour.items()]
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    say("\n".join(lines[:12 + len(stats)]))
+    say(f"Full report: {report}")
+    return {"snapshots": n, "links": len(links or []), "stats": {k: dict(v) for k, v in stats.items()},
+            "hits": real, "top": top, "resolutions": res_rows, "timeline": timeline}
+
+
 # ------------------------------------------------------------------ an invented example file
 
 def write_sample(raw: Path = RAW) -> Path:
@@ -502,15 +659,17 @@ def write_sample(raw: Path = RAW) -> Path:
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="frame.testdata")
-    ap.add_argument("cmd", choices=["convert", "core", "sample", "polysim", "ladder-study"])
+    ap.add_argument("cmd", choices=["convert", "core", "sample", "polysim", "ladder-study", "study"])
     ap.add_argument("folder", nargs="?", help="polysim recording folder (polysim / ladder-study)")
     ap.add_argument("--at", help="polysim: ISO time of the snapshot to use (default: the last one)")
     args = ap.parse_args(argv)
-    if args.cmd in ("polysim", "ladder-study"):
-        folder = Path(args.folder or next(iter(sorted(Path(".").glob("polysim-recordings-*"))), "recordings"))
+    if args.cmd in ("polysim", "ladder-study", "study"):
+        folder = Path(args.folder or "recordings")
         if args.cmd == "polysim":
             import_polysim(folder, args.at)
             print("Next: run.bat option 6 (core on this data) or 7 (the app on it).")
+        elif args.cmd == "study":
+            recording_study(folder)
         else:
             ladder_study(folder)
         return
