@@ -74,6 +74,23 @@ The Check page has three rows of checkboxes; `.env` sets the defaults, which the
 - **Kinds of market** (`FRAME_CATEGORIES`, default `all`): crypto, economics, politics, sports, science and tech, climate and weather, culture, health, other.
 - **Sports** (`FRAME_SPORTS_LEAGUES`, default `premier-league`): Premier League, Champions League, La Liga, Bundesliga, Serie A, NBA, NFL, MLB, NHL, UFC, tennis, F1, cricket. Games of ticked sports are pulled separately. A sports market whose league can't be told (e.g. Kalshi's) is kept.
 
+## Novig (`frame/novig.py`)
+
+Novig is a US sports exchange. The checker uses only its **public, unauthenticated** endpoints (`api.novig.com/v3/public/…`: events, markets, order books), with the same client rules as the core: GET only, allowlisted, rate-spaced, cached. It never uses the signed trading API.
+- **Which markets:** match results of the ticked sports. For football that's `MONEYLINE_3_WAY_WIN` and `MONEYLINE_3_WAY_DRAW`, both Yes/No, plus `MONEY` for two-way sports.
+- **How the books are built:** the ask on Yes is 1 − the best No bid, and contracts are 1¢, so 100 contracts make one $1 share.
+- **Fee:** Novig publishes a coefficient of 0.06, charged in-play only. We always apply 0.06 × p × (1 − p), to be cautious.
+- **Rules text:** Novig publishes none, so the checker writes a labelled summary of the market type instead.
+- **Same-match pairs:** `sports.cross_venue_games` matches the same match result across venues by code (team names with aliases, kickoff within 3 h). Those pairs are judged first, but still go to Gemini and a human before the core prices them.
+- **Pasted links:** a Novig link (any URL containing a Novig market or event id) works in *Check a pair*.
+
+## prediction.com (`frame/predictioncom.py`)
+
+prediction.com's scanner can be **checked** by ours: each listed opportunity becomes a pair in our pipeline, and their claimed ROI is shown next to our core's verdict.
+- **Paid route:** `GET /v2/arb` needs their **Dev tier** and `PREDICTION_API_KEY`.
+- **Free route:** paste an opportunity's two "Open market" links into *Check a pair*.
+- **Their terms:** no scraping outside the API, no redistributing their data, personal or internal use only.
+
 ## Historical trades (`frame/hfdata.py`, optional `requirements-data.txt`)
 
 The [SII-WANGZJ/Polymarket_data](https://huggingface.co/datasets/SII-WANGZJ/Polymarket_data) dataset holds about 1.27 billion trades. It has **no order books**, and about 85% of its rows fall in Jan–Sep 2026; 2024 is nearly absent.

@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Venue = Literal["polymarket", "kalshi", "manifold", "predictit", "manual"]
+Venue = Literal["polymarket", "kalshi", "manifold", "predictit", "novig", "manual"]
 RelationType = Literal[
     "same_event", "a_implies_b", "b_implies_a", "mutually_exclusive", "exhaustive_set", "unrelated", "unclear"
 ]

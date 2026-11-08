@@ -100,6 +100,57 @@ def game_links(markets: list[Market]) -> list[tuple[Market, Market, str]]:
     return out
 
 
+# ------------------------------------------------------------------ the same match on two venues
+
+ALIASES = {"man utd": "manchester united", "man united": "manchester united", "man city": "manchester city",
+           "spurs": "tottenham hotspur", "tottenham": "tottenham hotspur", "wolves": "wolverhampton wanderers",
+           "nottm forest": "nottingham forest", "nott'm forest": "nottingham forest", "forest": "nottingham forest",
+           "brighton": "brighton & hove albion", "newcastle": "newcastle united", "west ham": "west ham united",
+           "leeds": "leeds united", "ipswich": "ipswich town", "leicester": "leicester city", "psg": "paris saint-germain",
+           "inter": "inter milan", "atletico": "atletico madrid", "bayern": "bayern munich"}
+_WIN_Q = re.compile(r"^will (.+?) win on (\d{4}-\d{2}-\d{2})\?", re.I)
+_DRAW_Q = re.compile(r"^will (.+?) (?:vs\.?|@) (.+?) end in a draw", re.I)
+
+
+def team_key(name: str) -> str:
+    n = re.sub(r"\b(fc|afc|cf|sc)\b", "", (name or "").lower())
+    n = re.sub(r"[^a-z0-9&' ]+", " ", n)
+    n = re.sub(r"\s+", " ", n).strip()
+    return ALIASES.get(n, n)
+
+
+def same_team(a: str, b: str) -> bool:
+    ka, kb = team_key(a), team_key(b)
+    if ka == kb:
+        return True
+    ta, tb = set(ka.split()), set(kb.split())
+    short, long_ = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return bool(short) and short <= long_ and len(short) >= 1 and any(len(t) > 3 for t in short)
+
+
+def cross_venue_games(markets: list[Market]) -> list[tuple[Market, Market, str]]:
+    """The same match result listed on two venues (e.g. Polymarket and Novig), matched by CODE: same team(s) and
+    kickoff within 3 hours. These are CANDIDATES for a cross-platform arbitrage; like every cross-venue pair they
+    still go to Gemini (rule comparison) and a human before the core prices them."""
+    games = [m for m in markets if m.start_time_utc and m.sport_type == "moneyline"]
+    out = []
+    for i, a in enumerate(games):
+        for b in games[i + 1:]:
+            if a.venue == b.venue:
+                continue
+            ka, kb = _dt(a.start_time_utc), _dt(b.start_time_utc)
+            if not ka or not kb or abs((ka - kb).total_seconds()) > 3 * 3600:
+                continue
+            wa, wb = _WIN_Q.match(a.title), _WIN_Q.match(b.title)
+            da, db = _DRAW_Q.match(a.title), _DRAW_Q.match(b.title)
+            if wa and wb and same_team(wa.group(1), wb.group(1)):
+                out.append((a, b, f"Both ask whether {wa.group(1)} wins the same match."))
+            elif da and db and ((same_team(da.group(1), db.group(1)) and same_team(da.group(2), db.group(2))) or
+                                (same_team(da.group(1), db.group(2)) and same_team(da.group(2), db.group(1)))):
+                out.append((a, b, "Both ask whether the same match ends in a draw."))
+    return out
+
+
 # ------------------------------------------------------------------ optional external score feeds
 
 _ALLOWED = {"api.football-data.org": ("/v4/competitions/",), "site.api.espn.com": ("/apis/site/v2/sports/soccer/",)}

@@ -1,5 +1,6 @@
-"""Pull open markets. Live data goes ONLY through the core's compliant client (via the adapter);
-the frame adds no HTTP client of its own. Fixtures back tests and --replay."""
+"""Pull open markets through the adapter. Polymarket/Kalshi/Manifold go through the core's compliant client; the
+frame's own clients (Novig public API, optional sports feeds, prediction.com) follow the same rules: GET only,
+allowlisted host and path, rate-spaced, cached. Fixtures back tests and --replay."""
 from __future__ import annotations
 
 import json

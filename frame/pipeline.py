@@ -62,6 +62,7 @@ class Case:
     narrated: NarratedResult | None = None
     error: str | None = None
     history: list[str] = field(default_factory=list)
+    external: dict | None = None        # another scanner's claim about this pair (e.g. prediction.com's ROI)
 
     @property
     def id(self) -> str:
@@ -209,6 +210,10 @@ class Pipeline:
         self._say(f"Finding candidate pairs among {len(markets):,} markets and applying the suggestion rules…")
         raw = cand.generate(markets, self.embedder, self.cfg.top_k, self.cfg.date_window_days,
                             self.cfg.min_similarity, link)
+        # The same match on two venues (e.g. Polymarket and Novig), matched by code: added as cross-venue candidates,
+        # so they are judged first (still Gemini + a human before any pricing).
+        have = {pair_id(a, b) for a, b, *_ in raw}
+        raw += [(a, b, 0.99, "cross_venue") for a, b, _ in sports.cross_venue_games(markets) if pair_id(a, b) not in have]
         allowed = []
         for a, b, sim, how in raw:
             pid = pair_id(a, b)
@@ -415,6 +420,27 @@ class Pipeline:
             case = self._register(jp, sim, force_review=True, how="user")
             if not r.ok:
                 case.rule_note = f"{r.rule}: {r.reason}"
+            cases.append(case)
+        return cases, notes
+
+    def check_external(self, limit: int = 20) -> tuple[list[Case], list[str]]:
+        """prediction.com's arbitrage list (needs PREDICTION_API_KEY on their Dev tier) -> pairs in OUR pipeline.
+        Each pair goes through the rules and Gemini, waits for your confirmation, then the core prices it; their
+        claimed ROI rides along on the case so the app can show theirs next to ours."""
+        from . import predictioncom as pc
+        self._say("Asking prediction.com for its current arbitrage list…")
+        data = pc.Client().arb(limit=limit)
+        cases, notes = [], []
+        opps = data.get("opportunities") or []
+        for n, o in enumerate(opps, 1):
+            self._say(f"Checking prediction.com opportunity {n} of {len(opps)}: {(o.get('group_title') or '')[:50]}…")
+            a, b, note = pc.resolve_legs(self.adapter, o)
+            if a is None:
+                notes.append(f"{(o.get('group_title') or '?')[:60]}: skipped ({note})")
+                continue
+            case = self.check_pair(a, b)
+            case.external = pc.claim(o)
+            self.suggestions.log.append("external_claim", {"pair": case.id, **case.external})
             cases.append(case)
         return cases, notes
 

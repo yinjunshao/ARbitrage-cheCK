@@ -36,6 +36,12 @@ Kalshi's Developer Agreement limits API use to **a member's own trading** and ba
 - **Our own recording** (`recordings/polysim-20261108-1127Z`, 7–8 Nov) is now usable as test data and was replayed in full: [[19 Recording Study — 7–8 Nov]]. It is private and must not be redistributed.
 - Sources and details: `docs/RESEARCH_NOTES.md`.
 
+## Update 8 Nov (later)
+- **Novig** is now a venue (public API, sports match results).
+- **prediction.com**'s arbitrage list can be checked by our pipeline.
+
+Details and how to run: [[21 Novig & prediction.com]].
+
 ## Record forward (for evaluation on unseen data)
 - **polysim `record` / `fetch`**: polls Polymarket books to JSONL and pulls price history and resolutions. Polymarket keeps 1-minute history only about 7 days, so record forward.
 - **Polymarket CLOB WebSocket**: live book stream (check current terms; one vendor claims a paid tier).

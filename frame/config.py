@@ -43,7 +43,7 @@ class Config:
     # What to scan (the app's checkboxes start from these; the monitor uses them as they are).
     # FRAME_VENUES: polymarket,kalshi  ·  FRAME_CATEGORIES: all, or e.g. crypto,sports,politics
     # FRAME_SPORTS_LEAGUES: Polymarket sport tags, e.g. premier-league,nba
-    scan_venues: tuple[str, ...] = tuple(v.strip() for v in os.getenv("FRAME_VENUES", "polymarket,kalshi").split(",") if v.strip())
+    scan_venues: tuple[str, ...] = tuple(v.strip() for v in os.getenv("FRAME_VENUES", "polymarket,kalshi,novig").split(",") if v.strip())
     scan_categories: tuple[str, ...] = tuple(c.strip() for c in os.getenv("FRAME_CATEGORIES", "all").split(",") if c.strip())
     sports_leagues: tuple[str, ...] = tuple(s.strip() for s in os.getenv("FRAME_SPORTS_LEAGUES", "premier-league").split(",") if s.strip())
     max_screens_per_scan: int = int(os.getenv("FRAME_MAX_SCREENS_PER_SCAN", "40"))  # ladders / game links (no LLM)

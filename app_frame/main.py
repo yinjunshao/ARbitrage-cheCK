@@ -102,6 +102,7 @@ CATEGORY_LABELS = {"crypto": "Crypto", "economics": "Economics & finance", "poli
                    "culture": "Culture & entertainment", "health": "Health", "other": "Other"}
 SOURCES = [("polymarket", "Polymarket", ""),
            ("kalshi", "Kalshi", "Members only: set FRAME_KALSHI_MEMBER=1 in .env (its Developer Agreement)."),
+           ("novig", "Novig", "US sports exchange: match results of the ticked sports, from its public read-only API."),
            ("manifold", "Manifold", "Play money: shown as a price signal only, never a leg of a trade."),
            ("predictit", "PredictIt", "Not connected yet."),
            ("betfair", "Betfair Exchange", "Not connected yet (UK; needs an app key, see docs/DATA_SOURCES.md).")]
@@ -111,7 +112,7 @@ PREFS: dict[str, set[str]] = {}       # what the next scan looks at; shared by e
 def _init_prefs(cfg) -> None:
     from frame.categories import CATEGORIES
     cats = {n for n, _ in CATEGORIES} if (not cfg.scan_categories or "all" in cfg.scan_categories) else set(cfg.scan_categories)
-    venues = {v for v in cfg.scan_venues if v == "polymarket" or (v == "kalshi" and cfg.kalshi_member)}
+    venues = {v for v in cfg.scan_venues if v in ("polymarket", "novig") or (v == "kalshi" and cfg.kalshi_member)}
     PREFS.update(venues=venues, categories=cats, leagues=set(cfg.sports_leagues))
 
 
@@ -125,7 +126,7 @@ def scan_choices():
         ui.label("Sources").classes("text-sm text-gray-600")
         with ui.row().classes("gap-4"):
             for key, label, why in SOURCES:
-                usable = key == "polymarket" or (key == "kalshi" and P.cfg.kalshi_member)
+                usable = key in ("polymarket", "novig") or (key == "kalshi" and P.cfg.kalshi_member)
                 cb = ui.checkbox(label, value=key in PREFS["venues"],
                                  on_change=lambda e, k=key: toggle("venues", k, e.value))
                 if not usable:
@@ -252,6 +253,30 @@ def check_page():
             ui.navigate.to("/candidates")
 
         ui.button("Check this pair", on_click=run_check)
+
+        ui.separator()
+        ui.label("Check another scanner's arbitrage list").classes("text-xl")
+        ui.label("prediction.com lists cross-venue 'arbitrage' (Polymarket, Kalshi, Novig, …). This checks each one "
+                 "with our rules, Gemini and the core, and shows their claimed return next to our verdict.").classes("text-sm")
+        if os.getenv("PREDICTION_API_KEY"):
+            async def run_external():
+                from nicegui import run
+                try:
+                    async with busy("Checking prediction.com's arbitrage list"):
+                        cases, notes = await run.io_bound(P.check_external, 20)
+                except Exception as e:
+                    ui.notify(f"prediction.com: {type(e).__name__}: {e} (their /v2/arb needs the Dev tier)",
+                              type="negative", multi_line=True)
+                    return
+                for n in notes[:6]:
+                    ui.notify(n, type="info", multi_line=True)
+                ui.notify(f"{len(cases)} of their opportunities are ready for your review.", type="positive")
+                ui.navigate.to("/candidates")
+            ui.button("Check prediction.com's list", on_click=run_external)
+        else:
+            ui.markdown("No `PREDICTION_API_KEY` in `.env` (their arbitrage API needs the paid Dev tier). **Free route:** "
+                        "open [prediction.com/arbitrage](https://prediction.com/arbitrage), copy an opportunity's two "
+                        "*Open market* links, and paste them into **Check a pair** above.").classes("text-sm")
 
 
 class busy:
@@ -473,6 +498,9 @@ def _candidate_card(c):
         if c.rule_note:
             ui.label(f"⚠ Suggestion rule {c.rule_note} (shown because you asked for this pair)").classes(
                 "text-orange-700 text-sm")
+        if c.external:
+            ui.label(external_line(c.external) + " Our core prices it after you confirm.").classes(
+                "text-indigo-700 text-sm")
         ui.label(v.reasoning).classes("text-sm")
         pair_view(c.judged.a, c.judged.b, v.evidence_a, v.evidence_b)
         if c.rules:
@@ -535,14 +563,27 @@ def _plain_facts(core) -> list[str]:
     return facts
 
 
+def external_line(ext: dict | None) -> str:
+    if not ext:
+        return ""
+    return (f"{ext.get('source')} claimed {ext.get('roi_pct')}% return after fees (max wager ${ext.get('max_wager_usd')}, "
+            f"detected {ext.get('detected_at')}).")
+
+
 def render_report(core, n, market_lines: list[str], relation_text: str, arb_type: str, relation: str = "",
-                  judged_text: str = "", decision=None):
+                  judged_text: str = "", decision=None, external: dict | None = None):
     """One result, short report first, details behind an arrow. Used by pairs (/result) and findings (/finding)."""
     title, gist = VERDICT_WORDS.get(core.verdict, (core.verdict, ""))
     with ui.card().classes(f"w-full {VERDICT_STYLE[core.verdict]}"):
         ui.label(title).classes("text-2xl font-bold")
         ui.label(n.narrative.headline).classes("text-lg")
         ui.label(gist).classes("text-sm")
+    if external:
+        with ui.card().classes("w-full bg-indigo-50"):
+            ui.label("Another scanner's claim vs our check").classes("font-bold")
+            ui.label(external_line(external))
+            ui.label(f"Our core: {VERDICT_WORDS.get(core.verdict, (core.verdict,))[0]} — after costs "
+                     f"{cents(core.avg_edge)} a share, {core.approved_shares:,.0f} shares approved.").classes("text-sm")
     with ui.row().classes("items-center gap-2"):
         type_chip(arb_type)
         ui.label(arbtypes.TYPES.get(arb_type, {}).get("what", "")).classes("text-xs text-gray-500")
@@ -644,7 +685,7 @@ def result_page(case_id: str):
         render_report(core, n, [f"{a.venue.title()}: {a.title}", f"{b.venue.title()}: {b.title}"],
                       f"These {RELATION_WORDS.get(c.relation.relation, c.relation.relation.replace('_', ' '))}.",
                       c.arb_type, c.relation.relation,
-                      f"Judged by Gemini: {jv.relation} ({jv.confidence}). {jv.reasoning}", decision)
+                      f"Judged by Gemini: {jv.relation} ({jv.confidence}). {jv.reasoning}", decision, external=c.external)
 
 
 @ui.page("/finding/{fid:path}")

@@ -1,9 +1,9 @@
 ---
 tags: [agentverse, repo-doc]
 source: docs/DATA_SOURCES.md
-synced: 2026-11-08 12:42
+synced: 2026-11-08 12:55
 ---
-> Copy of `docs/DATA_SOURCES.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 12:42. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
+> Copy of `docs/DATA_SOURCES.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 12:55. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
 
 # Real data sources for the False-Arb Checker
 
@@ -18,6 +18,8 @@ before paying or building on them.** Not legal advice.
 | **Polymarket CLOB API** `clob.polymarket.com/book` | live order books per token | free, no key | arbcheck hydrates books when a confirmed pair is priced |
 | **Kalshi REST** `api.elections.kalshi.com/trade-api/v2` | events (with `category`), markets, rules, order books (bids only) | public market data needs no key | **only with `--kalshi-member`**: its Developer Agreement limits API use to a member's own trading and bars storing/sharing the data |
 | **Manifold** `api.manifold.markets` | play-money prices | free | signal only, never a leg |
+| **Novig** `api.novig.com/v3/public` | US sports exchange: events, match-result markets, order books | public, no key | `frame/novig.py`; terms (Novig Sweeps, 21+, US states) silent on data: internal use, never redistributed |
+| **prediction.com** `prediction.com/api/v2` | another scanner's cross-venue "arbitrage" list | `/v2/arb` = Dev tier ($49/mo) + key | `frame/predictioncom.py`: their claims are CHECKED by our pipeline; no scraping (their terms) |
 
 ## Record forward (for evaluation on unseen data)
 

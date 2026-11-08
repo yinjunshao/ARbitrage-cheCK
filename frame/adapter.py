@@ -119,7 +119,10 @@ class ArbcheckAdapter:
             self._universe = universe
         else:
             from arbcheck.compliance import ReadOnlyClient
+            from . import novig
             self.client = ReadOnlyClient()
+            self.novig = novig.Client()          # Novig's public endpoints only (frame/novig.py)
+            self._novig_raw: dict[str, tuple[dict, dict]] = {}
             self.registry = venues.build_registry(self.client, kalshi_member, loopback=True)
             self._universe = None
 
@@ -149,7 +152,7 @@ class ArbcheckAdapter:
             if k and k + GAME_LENGTH > close:
                 close = k + GAME_LENGTH
         return Market(
-            venue=cm.venue.lower() if cm.venue.lower() in ("polymarket", "kalshi", "manifold") else "manual",
+            venue=cm.venue.lower() if cm.venue.lower() in ("polymarket", "kalshi", "manifold", "novig") else "manual",
             id=cm.id, event_id=cm.group or None, title=cm.question, rules_text=cm.rules,
             close_time_utc=close.isoformat(), category=canonical(tags), tags=list(tags),
             yes_bid=cm.yes.best_bid, yes_ask=cm.yes.best_ask, no_bid=cm.no.best_bid, no_ask=cm.no.best_ask,
@@ -272,6 +275,14 @@ class ArbcheckAdapter:
             if cm is None:
                 raise ValueError(f"{m.venue} market {m.id} is no longer open or could not be found.")
         if cm is not None:
+            if not self.demo and cm.meta.get("novig"):
+                # Novig: rebuild with fresh books from its public order-book endpoint
+                raw = self._novig_raw.get(cm.id)
+                if raw:
+                    from . import novig
+                    cm = novig.core_market(self.novig, raw[0], raw[1], self.models, self.fees, hydrate=True)
+                    self._core[self._key(cm.venue, cm.id)] = cm
+                return cm
             if not self.demo and cm.tradeable:
                 # Always fresh order books when pricing (the core's client caches for 60 s).
                 self.registry.venues[cm.venue].hydrate(cm)
@@ -301,6 +312,8 @@ class ArbcheckAdapter:
             out += self._polymarket_events()
             seen = {m.id for m in out if m.venue == "polymarket"}
             out += [m for m in self._sports_events() if m.id not in seen]
+        if "novig" in wanted:
+            out += self._novig_markets()
         if "kalshi" in wanted:
             if self.kalshi_member:
                 out += self._kalshi_events()
@@ -339,6 +352,26 @@ class ArbcheckAdapter:
             self.event_starts[ev.get("slug", "")] = ev["startDate"]
         self._note_sports(ev)
         return [self.to_frame(cm, tags) for cm in polymarket.stubs_from_event(ev)[: self.max_per_event]]
+
+    def _novig_frame(self, m: dict, ev: dict | None, hydrate: bool = False) -> Market:
+        """One Novig market -> registered core Market -> frame Market (sports fields filled in)."""
+        from . import novig
+        cm = novig.core_market(self.novig, m, ev, self.models, self.fees, hydrate=hydrate)
+        self._novig_raw[m["marketId"]] = (m, ev)
+        league = novig.TO_SLUG.get((ev or {}).get("league") or "", (ev or {}).get("league"))
+        self._sports[self._key("Novig", cm.id)] = {
+            "start_time_utc": novig._iso(m["startsTs"]), "game_id": m.get("eventId"), "league": league,
+            "sport_type": "moneyline" if m["marketType"] in novig.RESULT_TYPES else m["marketType"].lower()}
+        return self.to_frame(cm, ["sports", league or ""])
+
+    def _novig_markets(self) -> list[Market]:
+        from . import novig
+        try:
+            rows = novig.list_markets(self.novig, self.sports_leagues, self.sports_days, self.progress)
+        except Exception as e:                     # one venue failing never stops the scan
+            self.last_notes.append(f"Novig: {e}")
+            return []
+        return [self._novig_frame(m, ev) for m, ev in rows]
 
     def _sports_events(self) -> list[Market]:
         """Upcoming and live games of the chosen leagues (default the Premier League), kicking off within
@@ -420,7 +453,18 @@ class ArbcheckAdapter:
         return self._event_tags[ev]
 
     def resolve(self, line: str) -> list[Market]:
-        """A link or words -> matched markets, via the core's Registry (never fetches arbitrary URLs)."""
+        """A link or words -> matched markets, via the core's Registry (never fetches arbitrary URLs).
+        Novig links (any URL on a novig domain, or a bare Novig id) go to Novig's public API instead."""
+        low = (line or "").lower()
+        if not self.demo and ("novig." in low or low.startswith("novig:")):
+            from . import novig
+            try:
+                found = novig.find(self.novig, line)
+            except Exception as e:
+                self.last_notes = [f"Novig: {e}"]
+                return []
+            self.last_notes = [] if found else ["No open Novig market or event found in that link."]
+            return [self._novig_frame(m, ev) for m, ev in found]
         res = self.registry.resolve(line)
         self.last_notes = list(res.notes) + list(self.registry.notes)
         if res.kind == "unreadable" and "kalshi.com" in line.lower() and not self.kalshi_member:
