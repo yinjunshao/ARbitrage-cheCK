@@ -22,3 +22,4 @@ data/testdata/
 # private recordings (Polymarket data may not be redistributed)
 polysim-recordings-*
 recordings/
+data/hfdata/

@@ -88,6 +88,22 @@ def test_exact_score_implies_the_result_inside_one_game():
     assert links == {"e01": "w2", "e11": "dr", "e20": "w1"}
 
 
+def test_sport_of_reads_league_and_tags():
+    assert sports.sport_of(mk("1", league="premier-league")) == {"premier-league"}
+    assert sports.sport_of(mk("2", tags=["sports", "EPL", "soccer"])) == {"premier-league"}
+    assert sports.sport_of(mk("3", tags=["sports", "nba"])) == {"nba"}
+    assert sports.sport_of(mk("4", tags=["Sports"])) == set()          # e.g. Kalshi: can't tell, so kept by the scan
+
+
+def test_scan_honours_ticked_categories(cfg, monkeypatch, markets):
+    from frame.pipeline import build
+    monkeypatch.setenv("FRAME_EMBEDDER", "hashing")
+    p = build(replay=True, cfg=cfg)
+    every = p.scan().markets
+    only = p.scan(categories=["crypto"]).markets
+    assert 0 <= only < every
+
+
 def test_in_play_window():
     assert sports.in_play(mk("1", start_time_utc=soon(hours=-1)))
     assert not sports.in_play(mk("2", start_time_utc=soon(hours=1)))
@@ -186,6 +202,21 @@ def test_recording_drops_stale_and_non_simultaneous_books(tmp_path):
     doc = testdata.polysim_doc(root, books, ts)
     assert [m["id"] for m in doc["markets"]] == ["m1"]                 # m2's only book is 1,000 s old: dropped
     assert "no_asks" not in doc["markets"][0]                          # No book 30 s apart: mirror used instead
+
+
+def test_hfdata_ladder_order_by_code():
+    from frame.hfdata import _ladder_order
+    ev = {"markets": [
+        {"id": 1, "question": "Will X happen by March 31?", "endDate": "2026-03-31T00:00:00Z"},
+        {"id": 2, "question": "Will X happen by June 30?", "endDate": "2026-06-30T00:00:00Z"},
+        {"id": 3, "question": "Will Bitcoin reach $90,000 in November?"},
+        {"id": 4, "question": "Will Bitcoin reach $100,000 in November?"},
+        {"id": 5, "question": "Will Bitcoin dip to $70,000 in November?"},
+        {"id": 6, "question": "Will Bitcoin dip to $60,000 in November?"}]}
+    pairs = set(_ladder_order(ev))     # (must be cheaper, must be dearer)
+    assert ("1", "2") in pairs          # an earlier date can't be worth more
+    assert ("4", "3") in pairs          # reaching $100k is harder than reaching $90k
+    assert ("6", "5") in pairs          # dipping to $60k is harder than dipping to $70k
 
 
 def test_bad_rows_are_rejected_not_guessed():

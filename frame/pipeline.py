@@ -153,16 +153,32 @@ class Pipeline:
         return v.relation not in ("unrelated", "unclear") and _CONF[v.confidence] >= _CONF[self.cfg.min_surface_confidence]
 
     # ------------------------------------------------------------ discover + judge
-    def scan(self, venues: list[str] = ("polymarket", "kalshi")) -> ScanSummary:
+    def scan(self, venues: list[str] | None = None, categories: list[str] | None = None,
+             leagues: list[str] | None = None) -> ScanSummary:
+        """venues / categories / leagues: what to scan (the app's checkboxes). None = the config defaults.
+        categories 'all' or None = every category. Sports markets are kept only for the ticked leagues
+        (a sports market whose league can't be told, e.g. Kalshi's, is kept)."""
         sid = time.strftime("%Y%m%dT%H%M%S")
         t0 = time.time()
-        self._say("Pulling open markets from the venues…")
+        venues = list(venues or self.cfg.scan_venues)
+        cats = set(categories or self.cfg.scan_categories)
+        leagues = list(self.cfg.sports_leagues if leagues is None else leagues)
+        all_cats = not cats or "all" in cats
+        if hasattr(self.adapter, "sports_leagues"):
+            self.adapter.sports_leagues = leagues if (all_cats or "sports" in cats) else []
+        self._say(f"Pulling open markets from {', '.join(venues)}…")
         if hasattr(self.adapter, "progress"):
             self.adapter.progress = self._say
-        markets = discover(self.adapter, list(venues), self.cfg.excluded_categories, self.cfg.kalshi_member)
+        markets = discover(self.adapter, venues, self.cfg.excluded_categories, self.cfg.kalshi_member)
         markets = [m for m in markets if m.venue != "manifold"]  # play money: signal only, never a leg
+        if not all_cats:
+            markets = [m for m in markets if (m.category or "other") in cats]
+        if leagues is not None and (all_cats or "sports" in cats):
+            markets = [m for m in markets if m.category != "sports" or not sports.sport_of(m)
+                       or sports.sport_of(m) & set(leagues)]
         s = ScanSummary(scan=sid, markets=len(markets), notes=list(getattr(self.adapter, "last_notes", [])))
-        self.audit.append("discover", {"scan": sid, "venues": list(venues), "n_markets": len(markets),
+        self.audit.append("discover", {"scan": sid, "venues": list(venues), "categories": sorted(cats),
+                                       "leagues": leagues, "n_markets": len(markets),
                                        "core": self.adapter.name, "notes": s.notes})
         self.judge_candidates(markets, s)
         self._say("Pricing venue-declared outcome sets with the core…")

@@ -40,6 +40,12 @@ class Config:
     min_similarity: float = float(os.getenv("FRAME_MIN_SIMILARITY", "0.45"))
     max_judge_per_scan: int = int(os.getenv("FRAME_MAX_JUDGE_PER_SCAN", "30"))  # LLM budget; rest retried next scan
     max_sets_per_scan: int = int(os.getenv("FRAME_MAX_SETS_PER_SCAN", "8"))     # venue exclusive sets priced (no LLM)
+    # What to scan (the app's checkboxes start from these; the monitor uses them as they are).
+    # FRAME_VENUES: polymarket,kalshi  ·  FRAME_CATEGORIES: all, or e.g. crypto,sports,politics
+    # FRAME_SPORTS_LEAGUES: Polymarket sport tags, e.g. premier-league,nba
+    scan_venues: tuple[str, ...] = tuple(v.strip() for v in os.getenv("FRAME_VENUES", "polymarket,kalshi").split(",") if v.strip())
+    scan_categories: tuple[str, ...] = tuple(c.strip() for c in os.getenv("FRAME_CATEGORIES", "all").split(",") if c.strip())
+    sports_leagues: tuple[str, ...] = tuple(s.strip() for s in os.getenv("FRAME_SPORTS_LEAGUES", "premier-league").split(",") if s.strip())
     max_screens_per_scan: int = int(os.getenv("FRAME_MAX_SCREENS_PER_SCAN", "40"))  # ladders / game links (no LLM)
     watch_tick_s: int = int(os.getenv("FRAME_WATCH_TICK_S", "30"))     # how often the watch loop looks for due items
     max_singles_per_scan: int = int(os.getenv("FRAME_MAX_SINGLES_PER_SCAN", "30"))  # "Yes + No under $1" checks (no LLM)

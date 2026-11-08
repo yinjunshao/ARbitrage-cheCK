@@ -1,9 +1,9 @@
 ---
 tags: [agentverse, repo-doc]
 source: docs/FRAME.md
-synced: 2026-11-08 11:58
+synced: 2026-11-08 12:42
 ---
-> Copy of `docs/FRAME.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 11:58. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
+> Copy of `docs/FRAME.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 12:42. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
 
 # False-Arb Checker on live data: LLM frame (Gemini) + numeric core (arbcheck) + polysim
 
@@ -70,6 +70,31 @@ Put downloaded files (JSON, JSONL, CSV) in `data/testdata/raw`.
 - Gemini maps each unfamiliar layout to our format and returns **field names only**, cached per file.
 - Code copies and validates every number.
 - `testdata-core` prices everything that needs no LLM and writes `data/testdata/report.md`.
+
+## What to scan (checkboxes)
+
+The Check page has three rows of checkboxes; `.env` sets the defaults, which the monitor also uses:
+- **Sources** (`FRAME_VENUES`): Polymarket, Kalshi, Manifold, PredictIt and Betfair Exchange.
+  - Kalshi can only be ticked when `FRAME_KALSHI_MEMBER=1`.
+  - Manifold is play money, so it's a signal only.
+  - PredictIt and Betfair are shown but not connected yet.
+- **Kinds of market** (`FRAME_CATEGORIES`, default `all`): crypto, economics, politics, sports, science and tech, climate and weather, culture, health, other.
+- **Sports** (`FRAME_SPORTS_LEAGUES`, default `premier-league`): Premier League, Champions League, La Liga, Bundesliga, Serie A, NBA, NFL, MLB, NHL, UFC, tennis, F1, cricket. Games of ticked sports are pulled separately. A sports market whose league can't be told (e.g. Kalshi's) is kept.
+
+## Historical trades (`frame/hfdata.py`, optional `requirements-data.txt`)
+
+The [SII-WANGZJ/Polymarket_data](https://huggingface.co/datasets/SII-WANGZJ/Polymarket_data) dataset holds about 1.27 billion trades. It has **no order books**, and about 85% of its rows fall in Jan–Sep 2026; 2024 is nearly absent.
+
+The file's layout, as measured:
+- rows are in day order;
+- within a day they are grouped by market;
+- markets of one event sit next to each other.
+
+The sampler never scans the file:
+1. **`scout`** finds a day by binary search on row number, then reads a few random 150k-row chunks straight from Hugging Face.
+2. It scores each event with a cheap screen on trade prices: exclusive outcomes not adding up to $1, or ladder rungs out of order, using only prices traded within 15 minutes of each other.
+3. **`export <find>`** writes an hour around the strongest signal as a recording with **trade-implied books**: taker buys become asks, taker sells become bids. That is liquidity that really traded, not the resting book.
+4. **`python -m frame.testdata study`** replays it through the core.
 
 ## Smart ordering (`frame/priority.py`)
 

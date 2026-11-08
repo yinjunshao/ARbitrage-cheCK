@@ -97,6 +97,63 @@ def pair_view(a: Market, b: Market, ev_a: list[str], ev_b: list[str]):
         ui.markdown(_highlight(" ".join(common), ev_a + ev_b)).classes("text-sm")
 
 
+CATEGORY_LABELS = {"crypto": "Crypto", "economics": "Economics & finance", "politics": "Politics & world",
+                   "sports": "Sports", "science_tech": "Science & tech", "climate_weather": "Climate & weather",
+                   "culture": "Culture & entertainment", "health": "Health", "other": "Other"}
+SOURCES = [("polymarket", "Polymarket", ""),
+           ("kalshi", "Kalshi", "Members only: set FRAME_KALSHI_MEMBER=1 in .env (its Developer Agreement)."),
+           ("manifold", "Manifold", "Play money: shown as a price signal only, never a leg of a trade."),
+           ("predictit", "PredictIt", "Not connected yet."),
+           ("betfair", "Betfair Exchange", "Not connected yet (UK; needs an app key, see docs/DATA_SOURCES.md).")]
+PREFS: dict[str, set[str]] = {}       # what the next scan looks at; shared by every open tab, set in main()
+
+
+def _init_prefs(cfg) -> None:
+    from frame.categories import CATEGORIES
+    cats = {n for n, _ in CATEGORIES} if (not cfg.scan_categories or "all" in cfg.scan_categories) else set(cfg.scan_categories)
+    venues = {v for v in cfg.scan_venues if v == "polymarket" or (v == "kalshi" and cfg.kalshi_member)}
+    PREFS.update(venues=venues, categories=cats, leagues=set(cfg.sports_leagues))
+
+
+def scan_choices():
+    """Checkboxes: which sources, which kinds of market, and which sports the scan looks at."""
+    def toggle(key, value, on):
+        (PREFS[key].add if on else PREFS[key].discard)(value)
+
+    with ui.card().classes("w-full"):
+        ui.label("What to scan").classes("font-bold")
+        ui.label("Sources").classes("text-sm text-gray-600")
+        with ui.row().classes("gap-4"):
+            for key, label, why in SOURCES:
+                usable = key == "polymarket" or (key == "kalshi" and P.cfg.kalshi_member)
+                cb = ui.checkbox(label, value=key in PREFS["venues"],
+                                 on_change=lambda e, k=key: toggle("venues", k, e.value))
+                if not usable:
+                    cb.disable()
+                if why:
+                    cb.tooltip(why)
+        ui.label("Kinds of market").classes("text-sm text-gray-600 mt-2")
+        with ui.row().classes("gap-4"):
+            for key, label in CATEGORY_LABELS.items():
+                ui.checkbox(label, value=key in PREFS["categories"],
+                            on_change=lambda e, k=key: (toggle("categories", k, e.value), sports_row.refresh()))
+        ui.label("Sports (games of these are pulled separately and watched every minute while in play)").classes(
+            "text-sm text-gray-600 mt-2")
+
+        @ui.refreshable
+        def sports_row():
+            on = "sports" in PREFS["categories"]
+            with ui.row().classes("gap-4"):
+                for key, label in sports.LEAGUES.items():
+                    cb = ui.checkbox(label, value=key in PREFS["leagues"],
+                                     on_change=lambda e, k=key: toggle("leagues", k, e.value))
+                    if not on:
+                        cb.disable()
+        sports_row()
+        ui.label("Defaults come from .env (FRAME_VENUES, FRAME_CATEGORIES, FRAME_SPORTS_LEAGUES), which the monitor "
+                 "also uses.").classes("text-xs text-gray-500")
+
+
 @ui.page("/")
 def check_page():
     banner()
@@ -111,6 +168,7 @@ def check_page():
                 ui.markdown(f"**{info['label']}**: {info['what']}  \n_Main risk: {info['risk']}_")
             ui.label("Same-market and multi-outcome checks need no LLM; cross-platform and logical pairs are judged "
                      "by Gemini and confirmed by you before the core prices them.").classes("text-xs text-gray-500")
+        scan_choices()
         status = ui.label("")
         if P.last_scan:
             s = P.last_scan
@@ -133,7 +191,14 @@ def check_page():
             status.set_text("Scanning live markets (usually 2–5 minutes; the watch list keeps re-checking in between).")
             from nicegui import run
             try:
-                s = await run.io_bound(P.scan, ["polymarket", "kalshi"])
+                if not PREFS["venues"]:
+                    ui.notify("Tick at least one source.", type="warning")
+                    return
+                if not PREFS["categories"]:
+                    ui.notify("Tick at least one kind of market.", type="warning")
+                    return
+                s = await run.io_bound(P.scan, sorted(PREFS["venues"]), sorted(PREFS["categories"]),
+                                       sorted(PREFS["leagues"]))
             except Exception as e:
                 ui.notify(f"Scan failed: {type(e).__name__}: {e}", type="negative", multi_line=True)
                 return
@@ -244,7 +309,7 @@ def type_chip(t: str):
 def candidates_page():
     banner()
     f = {"type": "all", "cat": "all", "conf": "any", "how": "any", "sort": "Smart (recommended)",
-         "fsort": "Smart (recommended)", "epl": False}
+         "fsort": "Smart (recommended)", "sport": "all"}
     with ui.column().classes("p-4 w-full"):
         ui.label("Opportunities").classes("text-2xl font-bold")
         cats = sorted({c.category for c in P.cases.values()} | {x.category for x in P.findings.values()})
@@ -264,7 +329,8 @@ def candidates_page():
                       on_change=lambda e: (f.update(sort=e.value), listing.refresh())).classes("w-56")
             ui.select(list(FIND_SORTS), value=f["fsort"], label="Sort priced results by",
                       on_change=lambda e: (f.update(fsort=e.value), listing.refresh())).classes("w-56")
-            ui.switch("Premier League only", on_change=lambda e: (f.update(epl=e.value), listing.refresh()))
+            ui.select({"all": "Any sport", **sports.LEAGUES}, value="all", label="Sport",
+                      on_change=lambda e: (f.update(sport=e.value), listing.refresh())).classes("w-44")
         # The live part (alerts, games, watch list) refreshes on its own every 20 s; the lists below only when a
         # filter changes, so nothing you type into a candidate card is wiped.
         top = ui.refreshable(lambda: _top(f))
@@ -282,9 +348,10 @@ def candidates_page():
 
 
 def _keep(c_type: str, category: str, f: dict, legs=()) -> bool:
-    if f.get("epl") and not any(getattr(m, "league", None) == "premier-league" or
-                                (isinstance(m, dict) and m.get("league") == "premier-league") for m in legs):
-        return False
+    if f.get("sport", "all") != "all":
+        ms = [Market(**{k: v for k, v in m.items() if k in Market.model_fields}) if isinstance(m, dict) else m for m in legs]
+        if not any(f["sport"] in sports.sport_of(m) for m in ms):
+            return False
     return f["type"] in ("all", c_type) and f["cat"] in ("all", category)
 
 
@@ -672,6 +739,7 @@ def main():
         P = testdata.build_pipeline(cfg)        # converted files + live Gemini for judging
     else:
         P = build(cfg=cfg)  # live venues + live Gemini
+    _init_prefs(P.cfg)
     app.on_startup(_background_watch)
     ui.run(title="False-Arb Checker", port=args.port, host="127.0.0.1", reload=False, show=False, dark=False)
 

@@ -111,6 +111,7 @@ class ArbcheckAdapter:
         self.live_games: dict[str, dict] = {}    # game id -> live state from Polymarket's own event data
         self.event_starts: dict[str, str] = {}   # event slug -> start (creation) time
         self.sports_leagues = [s for s in os.getenv("FRAME_SPORTS_LEAGUES", "premier-league").split(",") if s.strip()]
+        # (the pipeline overrides this per scan with the leagues ticked in the app)
         self.sports_days = int(os.getenv("FRAME_SPORTS_DAYS", "3"))
         if demo:
             universe = universe if universe is not None else demo_data.demo_markets()

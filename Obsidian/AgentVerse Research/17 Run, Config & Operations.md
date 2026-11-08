@@ -32,6 +32,8 @@ Related: [[14 Built App — How It Works]] · [[15 Suggestion Rules & Log]] · [
 | `python -m frame.testdata polysim recordings/<folder> [--at ISO]` | one moment of a polysim recording as test data (then menu 6 or 7) |
 | `python -m frame.testdata study recordings/<folder>` | replays the **whole** recording through the core → `data/testdata/recording_study.md` (see [[19 Recording Study — 7–8 Nov]]) |
 | `python -m frame.testdata ladder-study recordings/<folder>` | the earlier, ladder-only version |
+| `python -m frame.hfdata scout [--random N --chunks K]` | samples the historical Hugging Face dataset for candidate windows (see [[20 Historical Data Test — How To Run]]) |
+| `python -m frame.hfdata export <find #>` | turns a scout find into a recording (trade-implied books) for `study` |
 
 Recordings live in `recordings/`, which is gitignored. Polymarket data may not be redistributed, so never commit or post them.
 
@@ -54,7 +56,9 @@ Recordings live in `recordings/`, which is gitignored. Polymarket data may not b
 | `FRAME_WATCH_TICK_S` | `30` | how often the watch loop looks for due re-checks |
 | `FRAME_APP_WATCH` | `1` | `0` turns the app's own background watch off (when the monitor runs) |
 | `FRAME_DATE_WINDOW_DAYS` | = R6 (14) | cross-event candidate window |
-| `FRAME_SPORTS_LEAGUES` | `premier-league` | Polymarket tag slugs pulled as games |
+| `FRAME_SPORTS_LEAGUES` | `premier-league` | default ticked sports (Polymarket tag slugs) |
+| `FRAME_VENUES` | `polymarket,kalshi` | default ticked sources |
+| `FRAME_CATEGORIES` | `all` | default ticked kinds of market, e.g. `crypto,sports,politics` |
 | `FRAME_SPORTS_DAYS` | `3` | how far ahead games are pulled |
 | `FOOTBALL_DATA_API_KEY` | — | optional football-data.org feed (free tier = delayed) |
 | `FRAME_SPORTS_ESPN` | `0` | optional ESPN scoreboard (unofficial, personal use) |
@@ -63,23 +67,23 @@ Recordings live in `recordings/`, which is gitignored. Polymarket data may not b
 Paste two links (Polymarket, Kalshi if on, Manifold) or describe two events in words. A link to a multi-outcome event checks **each outcome against its closest match** on the other side. The app asks Gemini, shows the pair for review, and after confirmation the core prices it on fresh books. Manual entry needs a Yes ask, a depth and a close time.
 
 ## Fixed during the live debugging (lessons)
-| Problem | Cause | Fix |
-|---|---|---|
-| Scan "stuck" for 10+ minutes | **Gemini requests had no timeout**; one stalled call blocked everything | 60 s timeout, failure skips that pair |
-| 888 s scan | the log re-read its whole file on every append | cached the chain tail (scan went to ~100 s) |
-| 10 MB of log per scan | every candidate rewritten every scan | one row per pair |
-| App crashed on start | two processes corrupted the shared log | file lock plus tolerant reader |
-| "response too large" | core caps responses at 5 MB | pages of 25 that halve on error |
-| Implication pairs blocked | nested deadline flagged as a blocker | rule comparison now knows the relation |
-| Wrong outcome matches (Fed) | naive matching | token + synonym + one-to-one matching, with a regression test |
-| Narratives with raw floats | Gemini copied unrounded numbers | numbers rounded before narrating |
-| Old app after a code change | an app started earlier keeps old code | restart after pulling changes |
-| Games vanished at kickoff | Polymarket sets a game's `endDate` = kickoff | game open until kickoff + 2 h 15 min |
-| Same 40 ladders screened every scan | screening budget spent on already-watched pairs | watched pairs left to the watch loop |
-| R6 depended on argument order | whole-day rounding | exact time |
-| Core reported 80¢ "locked in" on WTI "(LOW)" ladders | the core's extractor orders downward thresholds backwards | frame blocks them; CORE_REQUESTS #6 |
-| Garbled "…" in `pipeline.py` | a PowerShell rewrite read UTF-8 as ANSI | repaired; edit files with Python or the editor, not `Get-Content`/`Set-Content` |
-| Recording replay merged snapshots (46 instead of ~170) | rounds split on a 20 s gap that never happens | a round ends when a token comes round again |
+| Problem                                                | Cause                                                                   | Fix                                                                             |
+| ------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Scan "stuck" for 10+ minutes                           | **Gemini requests had no timeout**; one stalled call blocked everything | 60 s timeout, failure skips that pair                                           |
+| 888 s scan                                             | the log re-read its whole file on every append                          | cached the chain tail (scan went to ~100 s)                                     |
+| 10 MB of log per scan                                  | every candidate rewritten every scan                                    | one row per pair                                                                |
+| App crashed on start                                   | two processes corrupted the shared log                                  | file lock plus tolerant reader                                                  |
+| "response too large"                                   | core caps responses at 5 MB                                             | pages of 25 that halve on error                                                 |
+| Implication pairs blocked                              | nested deadline flagged as a blocker                                    | rule comparison now knows the relation                                          |
+| Wrong outcome matches (Fed)                            | naive matching                                                          | token + synonym + one-to-one matching, with a regression test                   |
+| Narratives with raw floats                             | Gemini copied unrounded numbers                                         | numbers rounded before narrating                                                |
+| Old app after a code change                            | an app started earlier keeps old code                                   | restart after pulling changes                                                   |
+| Games vanished at kickoff                              | Polymarket sets a game's `endDate` = kickoff                            | game open until kickoff + 2 h 15 min                                            |
+| Same 40 ladders screened every scan                    | screening budget spent on already-watched pairs                         | watched pairs left to the watch loop                                            |
+| R6 depended on argument order                          | whole-day rounding                                                      | exact time                                                                      |
+| Core reported 80¢ "locked in" on WTI "(LOW)" ladders   | the core's extractor orders downward thresholds backwards               | frame blocks them; CORE_REQUESTS #6                                             |
+| Garbled "…" in `pipeline.py`                           | a PowerShell rewrite read UTF-8 as ANSI                                 | repaired; edit files with Python or the editor, not `Get-Content`/`Set-Content` |
+| Recording replay merged snapshots (46 instead of ~170) | rounds split on a 20 s gap that never happens                           | a round ends when a token comes round again                                     |
 
 ## Git and the vault
 - Branch **`integrated/llm-and-core`** holds the LLM frame, the core and polysim together. `frame/llm-layer` is the frame alone. Never push to `main`.

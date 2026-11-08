@@ -1,9 +1,9 @@
 ---
 tags: [agentverse, repo-doc]
 source: docs/RESEARCH_NOTES.md
-synced: 2026-11-08 11:58
+synced: 2026-11-08 12:42
 ---
-> Copy of `docs/RESEARCH_NOTES.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 11:58. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
+> Copy of `docs/RESEARCH_NOTES.md` from the repo (branch `integrated/llm-and-core`), synced 2026-11-08 12:42. Edit the repo file, then re-run `python scripts/sync_vault_docs.py`. Index: [[Repo Docs Index]]
 
 # Research notes: date ladders, a Polymarket sandbox, live sports data
 

@@ -570,6 +570,10 @@ def recording_study(folder: Path, budget: float = 300.0, say=print, report: Path
             core = ad.price_single(m, budget)
             note("same market (Yes + No)", m.title[:90], core, ts)
             round_hits += core.verdict in ("worth_a_look", "look_closely")
+        for legs in ad.exclusive_sets(list(ms.values()), max_sets=10_000, max_size=60):
+            core = ad.price_set(legs, budget)          # venue-declared exclusive outcomes ('at most one wins')
+            note("multi-outcome set", f"{len(legs)} outcomes of {legs[0].event_id}", core, ts)
+            round_hits += core.verdict in ("worth_a_look", "look_closely")
         timeline.append((when(ts), len(ms), round_hits))
         if n % 20 == 0:
             say(f"  … {n} snapshots replayed ({when(ts)} UTC)")

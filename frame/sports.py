@@ -28,6 +28,20 @@ from .schemas import Market
 
 GAME_LENGTH = timedelta(hours=2, minutes=15)      # kickoff to final whistle, with stoppage and half-time
 
+# Sports you can tick in the app (Polymarket tag slug -> label). Games of ticked sports are pulled separately.
+LEAGUES = {
+    "premier-league": "Premier League", "champions-league": "Champions League", "la-liga": "La Liga",
+    "bundesliga": "Bundesliga", "serie-a": "Serie A", "nba": "NBA", "nfl": "NFL", "mlb": "MLB", "nhl": "NHL",
+    "ufc": "UFC", "tennis": "Tennis", "f1": "Formula 1", "cricket": "Cricket",
+}
+_SPORT_TAGS = {"premier-league": {"premier-league", "epl"}, "champions-league": {"champions-league", "ucl"}}
+
+
+def sport_of(m: Market) -> set[str]:
+    """Which of LEAGUES a market belongs to (from its league or its venue tags). Empty = can't tell."""
+    tags = {(t or "").lower() for t in (m.tags or [])} | ({m.league} if m.league else set())
+    return {k for k in LEAGUES if tags & _SPORT_TAGS.get(k, {k})}
+
 _EXACT = re.compile(r"exact score:\s*(.+?)\s+(\d+)\s*-\s*(\d+)\s+(.+?)\?*$", re.I)
 _WIN = re.compile(r"will (.+?) win\b", re.I)
 _DRAW = re.compile(r"end in a draw", re.I)
