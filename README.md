@@ -153,6 +153,22 @@ polysim paper --tickets tickets.jsonl --live --approve cli --approver-name "Your
 
 **On our 7–8 Nov recording**, arbcheck priced 255 moments where a ladder pair showed a gap at the best asks. With its normal limits it approved **none**. With every threshold set to zero, to exercise the hand-over, it approved 192, almost all one Bitcoin pair at 99.4¢ + 0.5¢. The desk filled all 192 at the core's prices: **$8.27 locked in, on $20,500 of capital tied up until the end of 2026**. The 20 that resolved during the recording all paid their floor. The recorder's books are a minute apart, so in a replay the book does not move during the 2-second latency; on live books it can.
 
+## Rule check on real cross-venue pairs (frame + Gemini)
+
+Prices are only half of "is this arbitrage real?". Two markets with the same title can settle on different rules, and then the "guaranteed" payout is not guaranteed. We ran the team's labelled set of **5 real Polymarket–Kalshi pairs** (`data/real_pairs.json`, `scripts/eval_real_pairs.py` on `frame/llm-layer`) on 8 Nov 2026. A person labelled each pair: `material` means a plausible outcome pays differently on the two venues; `edge` means they differ only in rare cases.
+
+| Checker | Material differences caught | Missed | False alarms on edge pairs |
+|---|---|---|---|
+| Title-only baseline | 0 / 3 | 3 | 0 / 2 |
+| arbcheck offline rule reader (keywords) | 0 / 3 | 3 | 0 / 2 |
+| **Gemini rule comparison** | **3 / 3** | **0** | **2 / 2** |
+
+- **Gemini found every real trap, for the right reason.** NYC temperature: `data_source: blocker` (LaGuardia vs Central Park). Bitcoin daily: `data_source: blocker` (a Binance 1-minute candle vs the CF Benchmarks index). TIME Person of the Year: `yes_definition: blocker` ("associated and pictured" vs "explicitly named"; in 2025 the same bet paid on one venue and lost on the other).
+- **It also flagged both edge pairs as serious**, so on this set it does not yet tell "rare" differences from material ones. A checker that always says "serious" would score the same on these 5. The value shown here is that it names the clause that differs, with quotes a person can check.
+- **This is the intended failure direction.** A false alarm costs a skipped trade; a miss costs money. The core only lets the LLM make a verdict more cautious, never less, and a person confirms before anything is priced.
+- **The keyword reader could not link 4 of the 5 titles**, so it never compared their rules. That is the gap the LLM layer fills.
+- **Limits, stated plainly:** n = 5; the rules are summaries, not the venues' verbatim text; one labeller. Next: 100–200 pairs, verbatim rules, two labellers with agreement reported, precision first.
+
 ## How it works, step by step
 
 1. **Get the data (`data/polymarket.py`, `data/feeds.py`).**
